@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { api } from "./api";
-import type { AppState, CustomOpener, DirectoryItem, Group, ViewMode } from "./types";
+import type { AppState, ColumnWidths, CustomOpener, DirectoryItem, Group, ViewMode } from "./types";
 import { emptyState } from "./types";
 
 type DialogMode = "directory" | "group" | "opener" | null;
@@ -52,6 +53,21 @@ function App() {
     const refreshed = await api.getAppState();
     setState(refreshed);
     setMessage("已保存到 exe 同级 config.json");
+  };
+
+  const updateColumnWidths = (columnWidths: ColumnWidths) => {
+    setState((current) => ({ ...current, ui: { ...current.ui, columnWidths } }));
+  };
+
+  const persistColumnWidths = async (columnWidths: ColumnWidths) => {
+    const next = { ...state, ui: { ...state.ui, columnWidths } };
+    setState(next);
+    try {
+      await api.saveAppState(next);
+      setMessage("列宽已保存");
+    } catch (error) {
+      setMessage(String(error));
+    }
   };
 
   const saveDirectory = async (directory: DirectoryItem) => {
@@ -189,11 +205,14 @@ function App() {
                     title={group.name}
                     directories={filteredDirectories.filter((item) => item.groupId === group.id)}
                     groups={state.groups}
-                    customOpeners={state.customOpeners}
-                    onOpenAction={openAction}
-                    onEditDirectory={(directory) => { setEditingDirectory(directory); setDialog("directory"); }}
-                    onRemoveDirectory={removeDirectory}
-                  />
+                  customOpeners={state.customOpeners}
+                  columnWidths={state.ui.columnWidths}
+                  onOpenAction={openAction}
+                  onEditDirectory={(directory) => { setEditingDirectory(directory); setDialog("directory"); }}
+                  onRemoveDirectory={removeDirectory}
+                  onColumnWidthsChange={updateColumnWidths}
+                  onColumnWidthsCommit={persistColumnWidths}
+                />
                 ))}
                 {ungroupedDirectories.length > 0 && (
                   <DirectoryTable
@@ -201,9 +220,12 @@ function App() {
                     directories={ungroupedDirectories}
                     groups={state.groups}
                     customOpeners={state.customOpeners}
+                    columnWidths={state.ui.columnWidths}
                     onOpenAction={openAction}
                     onEditDirectory={(directory) => { setEditingDirectory(directory); setDialog("directory"); }}
                     onRemoveDirectory={removeDirectory}
+                    onColumnWidthsChange={updateColumnWidths}
+                    onColumnWidthsCommit={persistColumnWidths}
                   />
                 )}
               </>
@@ -213,9 +235,12 @@ function App() {
                 directories={filteredDirectories}
                 groups={state.groups}
                 customOpeners={state.customOpeners}
+                columnWidths={state.ui.columnWidths}
                 onOpenAction={openAction}
                 onEditDirectory={(directory) => { setEditingDirectory(directory); setDialog("directory"); }}
                 onRemoveDirectory={removeDirectory}
+                onColumnWidthsChange={updateColumnWidths}
+                onColumnWidthsCommit={persistColumnWidths}
               />
             )}
           </section>
@@ -252,76 +277,116 @@ type TableProps = {
   directories: DirectoryItem[];
   groups: Group[];
   customOpeners: CustomOpener[];
+  columnWidths: ColumnWidths;
   onOpenAction: (action: () => Promise<void>) => void;
   onEditDirectory: (directory: DirectoryItem) => void;
   onRemoveDirectory: (id: string) => void;
+  onColumnWidthsChange: (columnWidths: ColumnWidths) => void;
+  onColumnWidthsCommit: (columnWidths: ColumnWidths) => void;
 };
 
 function DirectoryTable(props: TableProps) {
+  const gridTemplateColumns = `${props.columnWidths.name}px ${props.columnWidths.group}px ${props.columnWidths.path}px ${props.columnWidths.actions}px ${props.columnWidths.manage}px`;
+
+  const startResize = (key: keyof ColumnWidths, startEvent: ReactMouseEvent<HTMLButtonElement>) => {
+    startEvent.preventDefault();
+    const startX = startEvent.clientX;
+    const startWidth = props.columnWidths[key];
+    let latestWidths = props.columnWidths;
+    const minByKey: Record<keyof ColumnWidths, number> = {
+      name: 72,
+      group: 72,
+      path: 140,
+      actions: 240,
+      manage: 86,
+    };
+    const maxByKey: Record<keyof ColumnWidths, number> = {
+      name: 360,
+      group: 260,
+      path: 640,
+      actions: 640,
+      manage: 220,
+    };
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const rawWidth = startWidth + moveEvent.clientX - startX;
+      const nextWidth = Math.min(maxByKey[key], Math.max(minByKey[key], rawWidth));
+      latestWidths = { ...props.columnWidths, [key]: Math.round(nextWidth) };
+      props.onColumnWidthsChange(latestWidths);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      props.onColumnWidthsCommit(latestWidths);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
   return (
     <div className="directory-section">
       <div className="section-title">{props.title}</div>
-      <table>
-        <thead>
-          <tr>
-            <th>名称</th>
-            <th>分组</th>
-            <th>路径</th>
-            <th>打开方式</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {props.directories.length === 0 && (
-            <tr><td colSpan={5} className="empty-cell">暂无目录</td></tr>
-          )}
-          {props.directories.map((directory) => {
-            const group = props.groups.find((item) => item.id === directory.groupId);
-            return (
-              <tr key={directory.id}>
-                <td className="strong">{directory.name}</td>
-                <td><span className="tag">{group?.name || "未分组"}</span></td>
-                <td className="path-cell">{directory.path}</td>
-                <td>
-                  <div className="row-actions">
-                    <button className="soft-primary" onClick={() => props.onOpenAction(() => api.openPowerShellAdmin(directory.id))}>管理员 PowerShell 7</button>
-                    <button onClick={() => props.onOpenAction(() => api.openDirectory(directory.id))}>文件夹</button>
-                    {props.customOpeners.slice(0, 1).map((opener) => (
-                      <button key={opener.id} onClick={() => props.onOpenAction(() => api.openWithCustomTool(directory.id, opener.id))}>{opener.name}</button>
-                    ))}
-                    {props.customOpeners.length > 1 && (
-                      <select
-                        aria-label="更多工具"
-                        defaultValue=""
-                        onChange={(event) => {
-                          const openerId = event.target.value;
-                          event.currentTarget.value = "";
-                          if (openerId) {
-                            props.onOpenAction(() => api.openWithCustomTool(directory.id, openerId));
-                          }
-                        }}
-                      >
-                        <option value="">更多工具</option>
-                        {props.customOpeners.slice(1).map((opener) => (
-                          <option key={opener.id} value={opener.id}>{opener.name}</option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                </td>
-                <td>
-                  <div className="mini-actions">
-                    <button onClick={() => props.onEditDirectory(directory)}>编辑</button>
-                    <button onClick={() => props.onRemoveDirectory(directory.id)}>删除</button>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="directory-grid" style={{ gridTemplateColumns }}>
+        <div className="grid-head">名称<ResizeHandle onMouseDown={(event) => startResize("name", event)} /></div>
+        <div className="grid-head">分组<ResizeHandle onMouseDown={(event) => startResize("group", event)} /></div>
+        <div className="grid-head">路径<ResizeHandle onMouseDown={(event) => startResize("path", event)} /></div>
+        <div className="grid-head">打开方式<ResizeHandle onMouseDown={(event) => startResize("actions", event)} /></div>
+        <div className="grid-head">操作<ResizeHandle onMouseDown={(event) => startResize("manage", event)} /></div>
+
+        {props.directories.length === 0 && (
+          <div className="empty-cell" style={{ gridColumn: "1 / -1" }}>暂无目录</div>
+        )}
+        {props.directories.map((directory) => {
+          const group = props.groups.find((item) => item.id === directory.groupId);
+          return (
+            <div className="grid-row" style={{ display: "contents" }} key={directory.id}>
+              <div className="grid-cell strong">{directory.name}</div>
+              <div className="grid-cell"><span className="tag">{group?.name || "未分组"}</span></div>
+              <div className="grid-cell path-cell">{directory.path}</div>
+              <div className="grid-cell">
+                <div className="row-actions">
+                  <button className="soft-primary" onClick={() => props.onOpenAction(() => api.openPowerShellAdmin(directory.id))}>管理员 PowerShell 7</button>
+                  <button onClick={() => props.onOpenAction(() => api.openDirectory(directory.id))}>文件夹</button>
+                  {props.customOpeners.slice(0, 1).map((opener) => (
+                    <button key={opener.id} onClick={() => props.onOpenAction(() => api.openWithCustomTool(directory.id, opener.id))}>{opener.name}</button>
+                  ))}
+                  {props.customOpeners.length > 1 && (
+                    <select
+                      aria-label="更多工具"
+                      defaultValue=""
+                      onChange={(event) => {
+                        const openerId = event.target.value;
+                        event.currentTarget.value = "";
+                        if (openerId) {
+                          props.onOpenAction(() => api.openWithCustomTool(directory.id, openerId));
+                        }
+                      }}
+                    >
+                      <option value="">更多工具</option>
+                      {props.customOpeners.slice(1).map((opener) => (
+                        <option key={opener.id} value={opener.id}>{opener.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+              <div className="grid-cell">
+                <div className="mini-actions">
+                  <button onClick={() => props.onEditDirectory(directory)}>编辑</button>
+                  <button onClick={() => props.onRemoveDirectory(directory.id)}>删除</button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
+}
+
+function ResizeHandle({ onMouseDown }: { onMouseDown: (event: ReactMouseEvent<HTMLButtonElement>) => void }) {
+  return <button className="resize-handle" type="button" aria-label="调整列宽" onMouseDown={onMouseDown} />;
 }
 
 function DirectoryDialog({ directory, groups, onCancel, onSave }: {

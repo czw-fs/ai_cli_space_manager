@@ -28,6 +28,18 @@ type CustomOpener struct {
 	CommandTemplate string `json:"commandTemplate"`
 }
 
+type UISettings struct {
+	ColumnWidths ColumnWidths `json:"columnWidths"`
+}
+
+type ColumnWidths struct {
+	Name    int `json:"name"`
+	Group   int `json:"group"`
+	Path    int `json:"path"`
+	Actions int `json:"actions"`
+	Manage  int `json:"manage"`
+}
+
 type ConfigStatus struct {
 	ConfigExists  bool   `json:"configExists"`
 	ConfigPath    string `json:"configPath"`
@@ -39,6 +51,7 @@ type AppState struct {
 	Groups        []Group        `json:"groups"`
 	Directories   []Directory    `json:"directories"`
 	CustomOpeners []CustomOpener `json:"customOpeners"`
+	UI            UISettings     `json:"ui"`
 	Config        ConfigStatus   `json:"config"`
 }
 
@@ -46,6 +59,7 @@ type persistedState struct {
 	Groups        []Group        `json:"groups"`
 	Directories   []Directory    `json:"directories"`
 	CustomOpeners []CustomOpener `json:"customOpeners"`
+	UI            UISettings     `json:"ui"`
 }
 
 type Store struct {
@@ -73,6 +87,7 @@ func DefaultState(exeDir string) AppState {
 				CommandTemplate: "\"C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe\" \"{path}\"",
 			},
 		},
+		UI: defaultUISettings(),
 		Config: ConfigStatus{
 			ConfigPath:    configPath,
 			UsingDefaults: true,
@@ -103,6 +118,7 @@ func (s *Store) Load() (AppState, error) {
 	state.Groups = nonNilGroups(persisted.Groups)
 	state.Directories = nonNilDirectories(persisted.Directories)
 	state.CustomOpeners = nonNilOpeners(persisted.CustomOpeners)
+	state.UI = normalizeUISettings(persisted.UI)
 	state.Config = ConfigStatus{
 		ConfigExists: true,
 		ConfigPath:   s.configPath,
@@ -115,6 +131,7 @@ func (s *Store) Save(state AppState) error {
 		Groups:        nonNilGroups(state.Groups),
 		Directories:   nonNilDirectories(state.Directories),
 		CustomOpeners: nonNilOpeners(state.CustomOpeners),
+		UI:            normalizeUISettings(state.UI),
 	}
 	data, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
@@ -158,4 +175,39 @@ func nonNilOpeners(items []CustomOpener) []CustomOpener {
 		return []CustomOpener{}
 	}
 	return items
+}
+
+func defaultUISettings() UISettings {
+	return UISettings{
+		ColumnWidths: ColumnWidths{
+			Name:    120,
+			Group:   90,
+			Path:    260,
+			Actions: 360,
+			Manage:  110,
+		},
+	}
+}
+
+func normalizeUISettings(settings UISettings) UISettings {
+	defaults := defaultUISettings()
+	settings.ColumnWidths.Name = clampColumnWidth(settings.ColumnWidths.Name, defaults.ColumnWidths.Name, 72, 360)
+	settings.ColumnWidths.Group = clampColumnWidth(settings.ColumnWidths.Group, defaults.ColumnWidths.Group, 72, 260)
+	settings.ColumnWidths.Path = clampColumnWidth(settings.ColumnWidths.Path, defaults.ColumnWidths.Path, 140, 640)
+	settings.ColumnWidths.Actions = clampColumnWidth(settings.ColumnWidths.Actions, defaults.ColumnWidths.Actions, 240, 640)
+	settings.ColumnWidths.Manage = clampColumnWidth(settings.ColumnWidths.Manage, defaults.ColumnWidths.Manage, 86, 220)
+	return settings
+}
+
+func clampColumnWidth(value int, fallback int, min int, max int) int {
+	if value == 0 {
+		value = fallback
+	}
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }

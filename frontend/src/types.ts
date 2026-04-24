@@ -23,10 +23,23 @@ export type ConfigStatus = {
   usingDefaults: boolean;
 };
 
+export type ColumnWidths = {
+  name: number;
+  group: number;
+  path: number;
+  actions: number;
+  manage: number;
+};
+
+export type UISettings = {
+  columnWidths: ColumnWidths;
+};
+
 export type AppState = {
   groups: Group[];
   directories: DirectoryItem[];
   customOpeners: CustomOpener[];
+  ui: UISettings;
   config: ConfigStatus;
 };
 
@@ -36,6 +49,15 @@ export const emptyState: AppState = {
   groups: [],
   directories: [],
   customOpeners: [],
+  ui: {
+    columnWidths: {
+      name: 120,
+      group: 90,
+      path: 260,
+      actions: 360,
+      manage: 110,
+    },
+  },
   config: {
     configExists: false,
     configPath: "",

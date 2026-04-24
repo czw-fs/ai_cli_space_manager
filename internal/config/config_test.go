@@ -27,6 +27,9 @@ func TestLoadMissingConfigUsesDefaults(t *testing.T) {
 	if len(state.CustomOpeners) != 1 || state.CustomOpeners[0].Name != "IDEA" {
 		t.Fatalf("default custom opener not initialized: %#v", state.CustomOpeners)
 	}
+	if state.UI.ColumnWidths.Path == 0 {
+		t.Fatalf("default UI column widths were not initialized")
+	}
 }
 
 func TestSaveCreatesConfigNextToExeDir(t *testing.T) {
@@ -51,6 +54,31 @@ func TestSaveCreatesConfigNextToExeDir(t *testing.T) {
 	}
 	if _, ok := persisted["config"]; ok {
 		t.Fatalf("runtime config status should not be persisted")
+	}
+	if _, ok := persisted["ui"]; !ok {
+		t.Fatalf("ui settings should be persisted")
+	}
+}
+
+func TestLoadNormalizesColumnWidths(t *testing.T) {
+	dir := t.TempDir()
+	configText := `{"groups":[],"directories":[],"customOpeners":[],"ui":{"columnWidths":{"name":1,"group":9999,"path":0,"actions":280,"manage":90}}}`
+	if err := os.WriteFile(filepath.Join(dir, ConfigFileName), []byte(configText), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	state, err := NewStore(dir).Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if state.UI.ColumnWidths.Name != 72 {
+		t.Fatalf("name width = %d, want min clamp 72", state.UI.ColumnWidths.Name)
+	}
+	if state.UI.ColumnWidths.Group != 260 {
+		t.Fatalf("group width = %d, want max clamp 260", state.UI.ColumnWidths.Group)
+	}
+	if state.UI.ColumnWidths.Path != 260 {
+		t.Fatalf("path width = %d, want default 260", state.UI.ColumnWidths.Path)
 	}
 }
 

@@ -18,6 +18,56 @@ export namespace config {
 	        this.usingDefaults = source["usingDefaults"];
 	    }
 	}
+	export class ColumnWidths {
+	    name: number;
+	    group: number;
+	    path: number;
+	    actions: number;
+	    manage: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ColumnWidths(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.group = source["group"];
+	        this.path = source["path"];
+	        this.actions = source["actions"];
+	        this.manage = source["manage"];
+	    }
+	}
+	export class UISettings {
+	    columnWidths: ColumnWidths;
+	
+	    static createFrom(source: any = {}) {
+	        return new UISettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.columnWidths = this.convertValues(source["columnWidths"], ColumnWidths);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class CustomOpener {
 	    id: string;
 	    name: string;
@@ -70,6 +120,7 @@ export namespace config {
 	    groups: Group[];
 	    directories: Directory[];
 	    customOpeners: CustomOpener[];
+	    ui: UISettings;
 	    config: ConfigStatus;
 	
 	    static createFrom(source: any = {}) {
@@ -81,6 +132,7 @@ export namespace config {
 	        this.groups = this.convertValues(source["groups"], Group);
 	        this.directories = this.convertValues(source["directories"], Directory);
 	        this.customOpeners = this.convertValues(source["customOpeners"], CustomOpener);
+	        this.ui = this.convertValues(source["ui"], UISettings);
 	        this.config = this.convertValues(source["config"], ConfigStatus);
 	    }
 	
@@ -102,6 +154,8 @@ export namespace config {
 		    return a;
 		}
 	}
+	
+	
 	
 	
 	

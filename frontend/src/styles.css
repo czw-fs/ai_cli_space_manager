@@ -255,27 +255,56 @@ button {
   font-size: 13px;
 }
 
-table {
-  width: 100%;
-  min-width: 980px;
-  border-collapse: collapse;
+.directory-grid {
+  display: grid;
+  min-width: max-content;
 }
 
-th,
-td {
-  height: 54px;
+.grid-head,
+.grid-cell {
+  min-width: 0;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
   padding: 8px 12px;
   border-bottom: 1px solid #eef2f7;
-  text-align: left;
-  font-size: 13px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-th {
-  height: 38px;
+.grid-head {
+  position: relative;
+  min-height: 38px;
   background: #f8fafc;
   color: #64748b;
   font-size: 12px;
+  font-weight: 700;
+  user-select: none;
+}
+
+.grid-head + .grid-head,
+.grid-cell + .grid-cell {
+  border-left: 1px solid #f1f5f9;
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  z-index: 3;
+  width: 8px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+  background: #93c5fd;
 }
 
 .strong {
@@ -297,7 +326,6 @@ th {
 }
 
 .path-cell {
-  max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: Consolas, "Cascadia Mono", monospace;
@@ -338,6 +366,10 @@ th {
 }
 
 .empty-cell {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #94a3b8;
   text-align: center;
 }
@@ -481,7 +513,7 @@ th {
     flex-direction: column;
   }
 
-  table {
-    min-width: 900px;
+  .directory-grid {
+    min-width: max-content;
   }
 }
