@@ -232,3 +232,14 @@ Go 后端向前端暴露以下能力：
 ## 非目标
 
 本版本不实现云同步、多用户配置、插件系统、命令执行历史、目录图标自动识别。
+
+## 实现验证
+
+- `go test ./...`：通过。
+- `npm run build --prefix frontend`：通过。
+- `C:\dev\com\goProject\bin\wails.exe build`：通过，生成 `build/bin/OpenWorkspacePS.exe`。
+- 无 `config.json` 启动逻辑：后端测试覆盖缺失配置时使用默认状态。
+- 首次保存自动创建 `config.json`：后端测试覆盖。
+- 相对路径按 exe 同级目录解析：后端测试覆盖。
+- 损坏的 `config.json` 不会导致程序崩溃：后端测试覆盖。
+- 响应式布局：前端构建通过，样式包含侧栏收起、小窗口横向滚动和按钮稳定宽度规则。

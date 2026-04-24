@@ -17,13 +17,15 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:  "OpenWorkspacePS",
-		Width:  1024,
-		Height: 768,
+		Title:     "OpenWorkspacePS",
+		Width:     1120,
+		Height:    720,
+		MinWidth:  760,
+		MinHeight: 560,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
+		BackgroundColour: &options.RGBA{R: 248, G: 250, B: 252, A: 1},
 		OnStartup:        app.startup,
 		Bind: []interface{}{
 			app,
