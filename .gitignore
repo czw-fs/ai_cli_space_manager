@@ -1,0 +1,5 @@
+.superpowers
+.worktrees
+build/
+frontend/dist/
+frontend/node_modules/
