@@ -60,6 +60,18 @@ func TestOpenPowerShellAdminUsesRunAs(t *testing.T) {
 	if err := os.WriteFile(pwsh, []byte(""), 0644); err != nil {
 		t.Fatalf("write pwsh: %v", err)
 	}
+	programFiles := filepath.Join(t.TempDir(), "ProgramFiles")
+	terminalDir := filepath.Join(programFiles, "WindowsApps", "Microsoft.WindowsTerminal_1.24.10921.0_x64__8wekyb3d8bbwe")
+	if err := os.MkdirAll(terminalDir, 0755); err != nil {
+		t.Fatalf("mkdir terminal dir: %v", err)
+	}
+	wt := filepath.Join(terminalDir, "wt.exe")
+	if err := os.WriteFile(wt, []byte(""), 0644); err != nil {
+		t.Fatalf("write wt: %v", err)
+	}
+	t.Setenv("LOCALAPPDATA", filepath.Join(t.TempDir(), "missing-local-app-data"))
+	t.Setenv("ProgramFiles", programFiles)
+	t.Setenv("ProgramW6432", filepath.Join(t.TempDir(), "missing-program-w6432"))
 	runner := &fakeRunner{}
 	service := NewService(runner)
 
@@ -74,7 +86,7 @@ func TestOpenPowerShellAdminUsesRunAs(t *testing.T) {
 		t.Fatalf("command = %q, want powershell.exe", cmd.name)
 	}
 	joined := strings.Join(cmd.args, " ")
-	for _, part := range []string{"Start-Process", "-Verb", "RunAs", pwsh, dir} {
+	for _, part := range []string{"Start-Process", "-Verb", "RunAs", wt, "new-tab", "-d", pwsh, dir} {
 		if !strings.Contains(joined, part) {
 			t.Fatalf("args %q do not contain %q", joined, part)
 		}

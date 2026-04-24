@@ -223,7 +223,7 @@ function App() {
       </div>
 
       <footer className="statusbar">
-        <span>PowerShell 7：C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.1.0_x64__8wekyb3d8bbwe\pwsh.exe</span>
+        <span>Windows Terminal + PowerShell 7：C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.1.0_x64__8wekyb3d8bbwe\pwsh.exe</span>
         <span>配置：{state.config.configPath || "exe 同级 config.json"}</span>
       </footer>
 

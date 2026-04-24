@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -49,9 +51,19 @@ func (s *Service) OpenPowerShellAdmin(dir string, pwshPath string) error {
 		return fmt.Errorf("PowerShell 7 路径不可用：%s: %w", pwshPath, err)
 	}
 
+	if wtPath, ok := windowsTerminalPath(); ok {
+		command := fmt.Sprintf(
+			"Start-Process -FilePath %s -ArgumentList %s -Verb RunAs",
+			powershellQuote(wtPath),
+			powershellArray("new-tab", "-d", dir, pwshPath, "-NoLogo", "-NoExit"),
+		)
+		return s.runner.Start("powershell.exe", []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command}, "")
+	}
+
 	command := fmt.Sprintf(
-		"Start-Process -FilePath %s -ArgumentList '-NoLogo','-NoExit' -WorkingDirectory %s -Verb RunAs",
+		"Start-Process -FilePath %s -ArgumentList %s -WorkingDirectory %s -Verb RunAs",
 		powershellQuote(pwshPath),
+		powershellArray("-NoLogo", "-NoExit"),
 		powershellQuote(dir),
 	)
 	return s.runner.Start("powershell.exe", []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command}, "")
@@ -81,4 +93,40 @@ func requireDirectory(dir string) error {
 
 func powershellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+func powershellArray(values ...string) string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, powershellQuote(value))
+	}
+	return "@(" + strings.Join(quoted, ",") + ")"
+}
+
+func windowsTerminalPath() (string, bool) {
+	candidates := make([]string, 0, 4)
+
+	for _, root := range []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramW6432")} {
+		if root == "" {
+			continue
+		}
+		matches, _ := filepath.Glob(filepath.Join(root, "WindowsApps", "Microsoft.WindowsTerminal_*", "wt.exe"))
+		sort.Strings(matches)
+		for i := len(matches) - 1; i >= 0; i-- {
+			candidates = append(candidates, matches[i])
+		}
+	}
+	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+		candidates = append(candidates, filepath.Join(localAppData, "Microsoft", "WindowsApps", "wt.exe"))
+	}
+
+	for _, candidate := range candidates {
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			return candidate, true
+		}
+	}
+
+	path, err := exec.LookPath("wt.exe")
+	return path, err == nil
 }
