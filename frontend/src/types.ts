@@ -63,11 +63,14 @@ export type ColumnWidths = {
   manage: number;
 };
 
+export type UITheme = "dark" | "light";
+
 export type UISettings = {
   columnWidths: ColumnWidths;
   powerShellLaunchMode: "tab" | "window";
   enterKeyMode: "send" | "newline";
   attachmentRootPath: string;
+  theme: UITheme;
   sidebarWidth: number;
   composerHeight: number;
 };
@@ -90,6 +93,7 @@ export const emptyState: AppState = {
     powerShellLaunchMode: "tab",
     enterKeyMode: "send",
     attachmentRootPath: "codex_attachments",
+    theme: "dark",
     sidebarWidth: 176,
     composerHeight: 66,
     columnWidths: {

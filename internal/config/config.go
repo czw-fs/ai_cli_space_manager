@@ -34,6 +34,7 @@ type UISettings struct {
 	PowerShellLaunchMode string       `json:"powerShellLaunchMode"`
 	EnterKeyMode         string       `json:"enterKeyMode"`
 	AttachmentRootPath   string       `json:"attachmentRootPath"`
+	Theme                string       `json:"theme"`
 	SidebarWidth         int          `json:"sidebarWidth"`
 	ComposerHeight       int          `json:"composerHeight"`
 }
@@ -203,6 +204,7 @@ func defaultUISettings() UISettings {
 		PowerShellLaunchMode: "tab",
 		EnterKeyMode:         "send",
 		AttachmentRootPath:   "codex_attachments",
+		Theme:                "dark",
 		SidebarWidth:         176,
 		ComposerHeight:       66,
 		ColumnWidths: ColumnWidths{
@@ -226,6 +228,9 @@ func normalizeUISettings(settings UISettings) UISettings {
 	}
 	if strings.TrimSpace(settings.AttachmentRootPath) == "" {
 		settings.AttachmentRootPath = defaults.AttachmentRootPath
+	}
+	if settings.Theme != "dark" && settings.Theme != "light" {
+		settings.Theme = defaults.Theme
 	}
 	settings.SidebarWidth = clampColumnWidth(settings.SidebarWidth, defaults.SidebarWidth, 128, 320)
 	settings.ComposerHeight = clampColumnWidth(settings.ComposerHeight, defaults.ComposerHeight, 48, 180)

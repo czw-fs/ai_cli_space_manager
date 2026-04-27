@@ -52,6 +52,9 @@ func TestLoadMissingConfigUsesDefaults(t *testing.T) {
 	if state.UI.EnterKeyMode != "send" {
 		t.Fatalf("default enter key mode = %q, want send", state.UI.EnterKeyMode)
 	}
+	if state.UI.Theme != "dark" {
+		t.Fatalf("default theme = %q, want dark", state.UI.Theme)
+	}
 }
 
 func TestSaveCreatesConfigNextToExeDir(t *testing.T) {
@@ -168,6 +171,34 @@ func TestSavePersistsSearchColumnWidth(t *testing.T) {
 	}
 }
 
+func TestSavePersistsTheme(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	state := DefaultState(dir)
+	state.UI.Theme = "light"
+
+	if err := store.Save(state); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, ConfigFileName))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var persisted struct {
+		UI struct {
+			Theme string `json:"theme"`
+		} `json:"ui"`
+	}
+	if err := json.Unmarshal(content, &persisted); err != nil {
+		t.Fatalf("saved config is invalid json: %v", err)
+	}
+	if persisted.UI.Theme != "light" {
+		t.Fatalf("saved theme = %q, want light", persisted.UI.Theme)
+	}
+}
+
 func TestLoadClampsSearchColumnWidthToFrontendMaximum(t *testing.T) {
 	dir := t.TempDir()
 	configText := `{"groups":[],"directories":[],"customOpeners":[],"ui":{"columnWidths":{"search":520}}}`
@@ -186,7 +217,7 @@ func TestLoadClampsSearchColumnWidthToFrontendMaximum(t *testing.T) {
 
 func TestLoadNormalizesInvalidPowerShellLaunchMode(t *testing.T) {
 	dir := t.TempDir()
-	configText := `{"groups":[],"directories":[],"customOpeners":[],"ui":{"powerShellLaunchMode":"bad","enterKeyMode":"bad","attachmentRootPath":"","columnWidths":{}}}`
+	configText := `{"groups":[],"directories":[],"customOpeners":[],"ui":{"powerShellLaunchMode":"bad","enterKeyMode":"bad","attachmentRootPath":"","theme":"sepia","columnWidths":{}}}`
 	if err := os.WriteFile(filepath.Join(dir, ConfigFileName), []byte(configText), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -209,6 +240,9 @@ func TestLoadNormalizesInvalidPowerShellLaunchMode(t *testing.T) {
 	}
 	if state.UI.EnterKeyMode != "send" {
 		t.Fatalf("enter key mode = %q, want send", state.UI.EnterKeyMode)
+	}
+	if state.UI.Theme != "dark" {
+		t.Fatalf("theme = %q, want dark", state.UI.Theme)
 	}
 }
 

@@ -9,7 +9,7 @@ import type {
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { EventsOn } from "../wailsjs/runtime/runtime";
+import { EventsOn, WindowSetDarkTheme, WindowSetLightTheme } from "../wailsjs/runtime/runtime";
 import { api } from "./api";
 import { buildComposerWrites, shouldSendComposerOnEnter } from "./codexComposer";
 import {
@@ -30,6 +30,7 @@ import type {
   DirectoryItem,
   TerminalOutputEvent,
   TerminalSession,
+  UITheme,
 } from "./types";
 import { emptyState } from "./types";
 
@@ -66,6 +67,7 @@ const COMPOSER_MAX_HEIGHT = 180;
 const DEFAULT_SEARCH_WIDTH = 260;
 const SEARCH_MIN_WIDTH = 180;
 const SEARCH_MAX_WIDTH = 420;
+const normalizeTheme = (theme: string | undefined): UITheme => (theme === "light" ? "light" : "dark");
 
 const makeId = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -86,7 +88,6 @@ function App() {
   const [terminalSessions, setTerminalSessions] = useState<TerminalSession[]>([]);
   const [activeTerminalId, setActiveTerminalId] = useState("");
   const [activeArea, setActiveArea] = useState<"directories" | "terminal">("directories");
-  const [terminalsCollapsed, setTerminalsCollapsed] = useState(false);
   const [terminalContextMenu, setTerminalContextMenu] = useState<TerminalContextMenu>(null);
   const [renamingTerminalId, setRenamingTerminalId] = useState("");
   const [terminalRenameDraft, setTerminalRenameDraft] = useState("");
@@ -451,6 +452,33 @@ function App() {
     setEditingOpener(null);
   };
 
+  const currentTheme = normalizeTheme(state.ui.theme);
+
+  useEffect(() => {
+    document.body.classList.toggle("theme-light-body", currentTheme === "light");
+    document.body.classList.toggle("theme-dark-body", currentTheme === "dark");
+    try {
+      if (currentTheme === "light") {
+        WindowSetLightTheme();
+      } else {
+        WindowSetDarkTheme();
+      }
+    } catch {
+      // Wails runtime theme APIs are unavailable in plain browser previews.
+    }
+  }, [currentTheme]);
+
+  const toggleTheme = async () => {
+    const theme: UITheme = currentTheme === "dark" ? "light" : "dark";
+    const next = { ...stateRef.current, ui: { ...stateRef.current.ui, theme } };
+    applyState(next);
+    try {
+      await api.saveAppState(next);
+    } catch (error) {
+      setMessage(String(error));
+    }
+  };
+
   const sidebarWidth = clampNumber(
     state.ui.sidebarWidth || DEFAULT_SIDEBAR_WIDTH,
     SIDEBAR_MIN_WIDTH,
@@ -459,7 +487,7 @@ function App() {
   const workspaceStyle = { "--sidebar-width": `${sidebarWidth}px` } as CSSProperties & Record<"--sidebar-width", string>;
 
   return (
-    <div className={`app-shell ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
+    <div className={`app-shell theme-${currentTheme} ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
       <div className="workspace" style={workspaceStyle}>
         <aside className="sidebar">
           <div className="sidebar-head workspace-head collapsible-head">
@@ -476,15 +504,6 @@ function App() {
           </div>
           <div className="sidebar-head terminal-head collapsible-head">
             <button
-              className={terminalsCollapsed ? "collapse-button collapsed" : "collapse-button"}
-              type="button"
-              aria-label={terminalsCollapsed ? "展开终端" : "折叠终端"}
-              aria-expanded={!terminalsCollapsed}
-              onClick={() => setTerminalsCollapsed((current) => !current)}
-            >
-              ▾
-            </button>
-            <button
               className={activeArea === "terminal" ? "sidebar-title active" : "sidebar-title"}
               type="button"
               onClick={() => {
@@ -495,7 +514,7 @@ function App() {
               终端
             </button>
           </div>
-          <div className={terminalsCollapsed ? "sidebar-section collapsed" : "sidebar-section"}>
+          <div className="sidebar-section">
             {terminalSessions.length === 0 && <div className="sidebar-empty">暂无终端</div>}
             {terminalSessions.map((session) => (
               <div className="terminal-nav-row" key={session.id}>
@@ -605,6 +624,14 @@ function App() {
                 />
                 <button onClick={() => { setEditingOpener(null); setDialog("opener"); }}>管理打开方式</button>
                 <button className="primary" onClick={addWorkspace}>新增工作区</button>
+                <button
+                  className="theme-toggle"
+                  type="button"
+                  title={currentTheme === "dark" ? "切换到白色主题" : "切换到深色主题"}
+                  onClick={toggleTheme}
+                >
+                  {currentTheme === "dark" ? "白色主题" : "深色主题"}
+                </button>
                 <button
                   className="more-button"
                   type="button"

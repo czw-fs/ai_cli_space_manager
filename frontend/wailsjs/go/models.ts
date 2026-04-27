@@ -90,6 +90,7 @@ export namespace config {
 	    powerShellLaunchMode: string;
 	    enterKeyMode: string;
 	    attachmentRootPath: string;
+	    theme: string;
 	    sidebarWidth: number;
 	    composerHeight: number;
 	
@@ -103,6 +104,7 @@ export namespace config {
 	        this.powerShellLaunchMode = source["powerShellLaunchMode"];
 	        this.enterKeyMode = source["enterKeyMode"];
 	        this.attachmentRootPath = source["attachmentRootPath"];
+	        this.theme = source["theme"];
 	        this.sidebarWidth = source["sidebarWidth"];
 	        this.composerHeight = source["composerHeight"];
 	    }
