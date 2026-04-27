@@ -16,6 +16,36 @@ export type CustomOpener = {
   commandTemplate: string;
 };
 
+export type TerminalSession = {
+  id: string;
+  title: string;
+  directory: string;
+  running: boolean;
+  createdAt: number;
+};
+
+export type TerminalOutputEvent = {
+  sessionId: string;
+  data: string;
+  stream: "pty" | "stdout" | "stderr" | "system";
+};
+
+export type AttachmentFile = {
+  id: string;
+  name: string;
+  path: string;
+  mimeType: string;
+  size: number;
+};
+
+export type SaveAttachmentRequest = {
+  sessionId: string;
+  fileName: string;
+  mimeType: string;
+  dataBase64: string;
+  attachmentRootPath: string;
+};
+
 export type ConfigStatus = {
   configExists: boolean;
   configPath: string;
@@ -33,6 +63,11 @@ export type ColumnWidths = {
 
 export type UISettings = {
   columnWidths: ColumnWidths;
+  powerShellLaunchMode: "tab" | "window";
+  enterKeyMode: "send" | "newline";
+  attachmentRootPath: string;
+  sidebarWidth: number;
+  composerHeight: number;
 };
 
 export type AppState = {
@@ -50,11 +85,16 @@ export const emptyState: AppState = {
   directories: [],
   customOpeners: [],
   ui: {
+    powerShellLaunchMode: "tab",
+    enterKeyMode: "send",
+    attachmentRootPath: "codex_attachments",
+    sidebarWidth: 176,
+    composerHeight: 66,
     columnWidths: {
       name: 120,
       group: 90,
       path: 260,
-      actions: 360,
+      actions: 520,
       manage: 110,
     },
   },

@@ -1,10 +1,17 @@
-import type { AppState } from "./types";
+import type { AppState, AttachmentFile, SaveAttachmentRequest, TerminalSession } from "./types";
 
 type BackendApi = {
   GetAppState(): Promise<AppState>;
   SaveAppState(state: AppState): Promise<void>;
   OpenDirectory(directoryId: string): Promise<void>;
   OpenPowerShellAdmin(directoryId: string): Promise<void>;
+  StartEmbeddedTerminal(directoryId: string): Promise<TerminalSession>;
+  GetTerminalSessions(): Promise<TerminalSession[]>;
+  WriteTerminalInput(sessionId: string, input: string): Promise<void>;
+  ResizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>;
+  StopTerminal(sessionId: string): Promise<void>;
+  SaveAttachment(request: SaveAttachmentRequest): Promise<AttachmentFile>;
+  OpenAttachment(path: string): Promise<void>;
   OpenWithCustomTool(directoryId: string, openerId: string): Promise<void>;
   ValidatePath(path: string): Promise<boolean>;
   ResolvePath(path: string): Promise<string>;
@@ -26,6 +33,27 @@ export const api = {
   },
   async openPowerShellAdmin(directoryId: string): Promise<void> {
     return (await backend()).OpenPowerShellAdmin(directoryId);
+  },
+  async startEmbeddedTerminal(directoryId: string): Promise<TerminalSession> {
+    return (await backend()).StartEmbeddedTerminal(directoryId);
+  },
+  async getTerminalSessions(): Promise<TerminalSession[]> {
+    return (await backend()).GetTerminalSessions();
+  },
+  async writeTerminalInput(sessionId: string, input: string): Promise<void> {
+    return (await backend()).WriteTerminalInput(sessionId, input);
+  },
+  async resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void> {
+    return (await backend()).ResizeTerminal(sessionId, cols, rows);
+  },
+  async stopTerminal(sessionId: string): Promise<void> {
+    return (await backend()).StopTerminal(sessionId);
+  },
+  async saveAttachment(request: SaveAttachmentRequest): Promise<AttachmentFile> {
+    return (await backend()).SaveAttachment(request);
+  },
+  async openAttachment(path: string): Promise<void> {
+    return (await backend()).OpenAttachment(path);
   },
   async openWithCustomTool(directoryId: string, openerId: string): Promise<void> {
     return (await backend()).OpenWithCustomTool(directoryId, openerId);

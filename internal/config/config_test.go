@@ -30,6 +30,21 @@ func TestLoadMissingConfigUsesDefaults(t *testing.T) {
 	if state.UI.ColumnWidths.Path == 0 {
 		t.Fatalf("default UI column widths were not initialized")
 	}
+	if state.UI.PowerShellLaunchMode != "tab" {
+		t.Fatalf("default PowerShell launch mode = %q, want tab", state.UI.PowerShellLaunchMode)
+	}
+	if state.UI.AttachmentRootPath != "codex_attachments" {
+		t.Fatalf("default attachment root path = %q, want codex_attachments", state.UI.AttachmentRootPath)
+	}
+	if state.UI.SidebarWidth != 176 {
+		t.Fatalf("default sidebar width = %d, want 176", state.UI.SidebarWidth)
+	}
+	if state.UI.ComposerHeight != 66 {
+		t.Fatalf("default composer height = %d, want 66", state.UI.ComposerHeight)
+	}
+	if state.UI.EnterKeyMode != "send" {
+		t.Fatalf("default enter key mode = %q, want send", state.UI.EnterKeyMode)
+	}
 }
 
 func TestSaveCreatesConfigNextToExeDir(t *testing.T) {
@@ -60,9 +75,9 @@ func TestSaveCreatesConfigNextToExeDir(t *testing.T) {
 	}
 }
 
-func TestLoadNormalizesColumnWidths(t *testing.T) {
+func TestLoadNormalizesUISizesAndColumnWidths(t *testing.T) {
 	dir := t.TempDir()
-	configText := `{"groups":[],"directories":[],"customOpeners":[],"ui":{"columnWidths":{"name":1,"group":9999,"path":0,"actions":280,"manage":90}}}`
+	configText := `{"groups":[],"directories":[],"customOpeners":[],"ui":{"powerShellLaunchMode":"window","sidebarWidth":80,"composerHeight":999,"columnWidths":{"name":1,"group":9999,"path":0,"actions":280,"manage":90}}}`
 	if err := os.WriteFile(filepath.Join(dir, ConfigFileName), []byte(configText), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -79,6 +94,46 @@ func TestLoadNormalizesColumnWidths(t *testing.T) {
 	}
 	if state.UI.ColumnWidths.Path != 260 {
 		t.Fatalf("path width = %d, want default 260", state.UI.ColumnWidths.Path)
+	}
+	if state.UI.ColumnWidths.Actions != 500 {
+		t.Fatalf("actions width = %d, want min clamp 500", state.UI.ColumnWidths.Actions)
+	}
+	if state.UI.PowerShellLaunchMode != "window" {
+		t.Fatalf("PowerShell launch mode = %q, want window", state.UI.PowerShellLaunchMode)
+	}
+	if state.UI.SidebarWidth != 128 {
+		t.Fatalf("sidebar width = %d, want min clamp 128", state.UI.SidebarWidth)
+	}
+	if state.UI.ComposerHeight != 180 {
+		t.Fatalf("composer height = %d, want max clamp 180", state.UI.ComposerHeight)
+	}
+}
+
+func TestLoadNormalizesInvalidPowerShellLaunchMode(t *testing.T) {
+	dir := t.TempDir()
+	configText := `{"groups":[],"directories":[],"customOpeners":[],"ui":{"powerShellLaunchMode":"bad","enterKeyMode":"bad","attachmentRootPath":"","columnWidths":{}}}`
+	if err := os.WriteFile(filepath.Join(dir, ConfigFileName), []byte(configText), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	state, err := NewStore(dir).Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if state.UI.PowerShellLaunchMode != "tab" {
+		t.Fatalf("PowerShell launch mode = %q, want tab", state.UI.PowerShellLaunchMode)
+	}
+	if state.UI.AttachmentRootPath != "codex_attachments" {
+		t.Fatalf("attachment root path = %q, want codex_attachments", state.UI.AttachmentRootPath)
+	}
+	if state.UI.SidebarWidth != 176 {
+		t.Fatalf("sidebar width = %d, want default 176", state.UI.SidebarWidth)
+	}
+	if state.UI.ComposerHeight != 66 {
+		t.Fatalf("composer height = %d, want default 66", state.UI.ComposerHeight)
+	}
+	if state.UI.EnterKeyMode != "send" {
+		t.Fatalf("enter key mode = %q, want send", state.UI.EnterKeyMode)
 	}
 }
 

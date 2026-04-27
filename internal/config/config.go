@@ -29,7 +29,12 @@ type CustomOpener struct {
 }
 
 type UISettings struct {
-	ColumnWidths ColumnWidths `json:"columnWidths"`
+	ColumnWidths         ColumnWidths `json:"columnWidths"`
+	PowerShellLaunchMode string       `json:"powerShellLaunchMode"`
+	EnterKeyMode         string       `json:"enterKeyMode"`
+	AttachmentRootPath   string       `json:"attachmentRootPath"`
+	SidebarWidth         int          `json:"sidebarWidth"`
+	ComposerHeight       int          `json:"composerHeight"`
 }
 
 type ColumnWidths struct {
@@ -179,11 +184,16 @@ func nonNilOpeners(items []CustomOpener) []CustomOpener {
 
 func defaultUISettings() UISettings {
 	return UISettings{
+		PowerShellLaunchMode: "tab",
+		EnterKeyMode:         "send",
+		AttachmentRootPath:   "codex_attachments",
+		SidebarWidth:         176,
+		ComposerHeight:       66,
 		ColumnWidths: ColumnWidths{
 			Name:    120,
 			Group:   90,
 			Path:    260,
-			Actions: 360,
+			Actions: 520,
 			Manage:  110,
 		},
 	}
@@ -191,10 +201,21 @@ func defaultUISettings() UISettings {
 
 func normalizeUISettings(settings UISettings) UISettings {
 	defaults := defaultUISettings()
+	if settings.PowerShellLaunchMode != "tab" && settings.PowerShellLaunchMode != "window" {
+		settings.PowerShellLaunchMode = defaults.PowerShellLaunchMode
+	}
+	if settings.EnterKeyMode != "send" && settings.EnterKeyMode != "newline" {
+		settings.EnterKeyMode = defaults.EnterKeyMode
+	}
+	if strings.TrimSpace(settings.AttachmentRootPath) == "" {
+		settings.AttachmentRootPath = defaults.AttachmentRootPath
+	}
+	settings.SidebarWidth = clampColumnWidth(settings.SidebarWidth, defaults.SidebarWidth, 128, 320)
+	settings.ComposerHeight = clampColumnWidth(settings.ComposerHeight, defaults.ComposerHeight, 48, 180)
 	settings.ColumnWidths.Name = clampColumnWidth(settings.ColumnWidths.Name, defaults.ColumnWidths.Name, 72, 360)
 	settings.ColumnWidths.Group = clampColumnWidth(settings.ColumnWidths.Group, defaults.ColumnWidths.Group, 72, 260)
 	settings.ColumnWidths.Path = clampColumnWidth(settings.ColumnWidths.Path, defaults.ColumnWidths.Path, 140, 640)
-	settings.ColumnWidths.Actions = clampColumnWidth(settings.ColumnWidths.Actions, defaults.ColumnWidths.Actions, 240, 640)
+	settings.ColumnWidths.Actions = clampColumnWidth(settings.ColumnWidths.Actions, defaults.ColumnWidths.Actions, 500, 760)
 	settings.ColumnWidths.Manage = clampColumnWidth(settings.ColumnWidths.Manage, defaults.ColumnWidths.Manage, 86, 220)
 	return settings
 }

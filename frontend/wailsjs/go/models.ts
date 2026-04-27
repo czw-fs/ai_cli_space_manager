@@ -1,3 +1,48 @@
+export namespace attachment {
+	
+	export class FileInfo {
+	    id: string;
+	    name: string;
+	    path: string;
+	    mimeType: string;
+	    size: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.mimeType = source["mimeType"];
+	        this.size = source["size"];
+	    }
+	}
+	export class SaveRequest {
+	    sessionId: string;
+	    fileName: string;
+	    mimeType: string;
+	    dataBase64: string;
+	    attachmentRootPath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SaveRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.fileName = source["fileName"];
+	        this.mimeType = source["mimeType"];
+	        this.dataBase64 = source["dataBase64"];
+	        this.attachmentRootPath = source["attachmentRootPath"];
+	    }
+	}
+
+}
+
 export namespace config {
 	
 	export class ConfigStatus {
@@ -40,6 +85,11 @@ export namespace config {
 	}
 	export class UISettings {
 	    columnWidths: ColumnWidths;
+	    powerShellLaunchMode: string;
+	    enterKeyMode: string;
+	    attachmentRootPath: string;
+	    sidebarWidth: number;
+	    composerHeight: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new UISettings(source);
@@ -48,6 +98,11 @@ export namespace config {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.columnWidths = this.convertValues(source["columnWidths"], ColumnWidths);
+	        this.powerShellLaunchMode = source["powerShellLaunchMode"];
+	        this.enterKeyMode = source["enterKeyMode"];
+	        this.attachmentRootPath = source["attachmentRootPath"];
+	        this.sidebarWidth = source["sidebarWidth"];
+	        this.composerHeight = source["composerHeight"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -159,6 +214,31 @@ export namespace config {
 	
 	
 	
+
+}
+
+export namespace terminal {
+	
+	export class SessionInfo {
+	    id: string;
+	    title: string;
+	    directory: string;
+	    running: boolean;
+	    createdAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.directory = source["directory"];
+	        this.running = source["running"];
+	        this.createdAt = source["createdAt"];
+	    }
+	}
 
 }
 

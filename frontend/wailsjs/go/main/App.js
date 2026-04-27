@@ -6,6 +6,14 @@ export function GetAppState() {
   return window['go']['main']['App']['GetAppState']();
 }
 
+export function GetTerminalSessions() {
+  return window['go']['main']['App']['GetTerminalSessions']();
+}
+
+export function OpenAttachment(arg1) {
+  return window['go']['main']['App']['OpenAttachment'](arg1);
+}
+
 export function OpenDirectory(arg1) {
   return window['go']['main']['App']['OpenDirectory'](arg1);
 }
@@ -18,6 +26,10 @@ export function OpenWithCustomTool(arg1, arg2) {
   return window['go']['main']['App']['OpenWithCustomTool'](arg1, arg2);
 }
 
+export function ResizeTerminal(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ResizeTerminal'](arg1, arg2, arg3);
+}
+
 export function ResolvePath(arg1) {
   return window['go']['main']['App']['ResolvePath'](arg1);
 }
@@ -26,6 +38,22 @@ export function SaveAppState(arg1) {
   return window['go']['main']['App']['SaveAppState'](arg1);
 }
 
+export function SaveAttachment(arg1) {
+  return window['go']['main']['App']['SaveAttachment'](arg1);
+}
+
+export function StartEmbeddedTerminal(arg1) {
+  return window['go']['main']['App']['StartEmbeddedTerminal'](arg1);
+}
+
+export function StopTerminal(arg1) {
+  return window['go']['main']['App']['StopTerminal'](arg1);
+}
+
 export function ValidatePath(arg1) {
   return window['go']['main']['App']['ValidatePath'](arg1);
+}
+
+export function WriteTerminalInput(arg1, arg2) {
+  return window['go']['main']['App']['WriteTerminalInput'](arg1, arg2);
 }

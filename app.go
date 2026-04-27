@@ -5,16 +5,23 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"OpenWorkspacePS/internal/attachment"
 	appconfig "OpenWorkspacePS/internal/config"
 	"OpenWorkspacePS/internal/opener"
+	"OpenWorkspacePS/internal/terminal"
+
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type App struct {
-	ctx    context.Context
-	store  *appconfig.Store
-	opener *opener.Service
-	state  appconfig.AppState
+	ctx      context.Context
+	store    *appconfig.Store
+	opener   *opener.Service
+	attach   *attachment.Service
+	terminal *terminal.Service
+	state    appconfig.AppState
 }
 
 func NewApp() *App {
@@ -22,14 +29,23 @@ func NewApp() *App {
 	store := appconfig.NewStore(exeDir)
 	state, _ := store.Load()
 	return &App{
-		store:  store,
-		opener: opener.NewService(nil),
-		state:  state,
+		store:    store,
+		opener:   opener.NewService(nil),
+		attach:   attachment.NewService(exeDir),
+		terminal: terminal.NewService(opener.DefaultPowerShell7Path),
+		state:    state,
 	}
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.terminal.SetEventSink(func(eventName string, data any) {
+		wailsruntime.EventsEmit(ctx, eventName, data)
+	})
+}
+
+func (a *App) shutdown(ctx context.Context) {
+	a.terminal.StopAll()
 }
 
 func (a *App) GetAppState() appconfig.AppState {
@@ -63,7 +79,8 @@ func (a *App) OpenPowerShellAdmin(directoryID string) error {
 	if err != nil {
 		return err
 	}
-	return a.opener.OpenPowerShellAdmin(dir, opener.DefaultPowerShell7Path)
+	mode := opener.PowerShellLaunchMode(a.state.UI.PowerShellLaunchMode)
+	return a.opener.OpenPowerShellAdmin(dir, opener.DefaultPowerShell7Path, mode)
 }
 
 func (a *App) OpenWithCustomTool(directoryID string, openerID string) error {
@@ -77,6 +94,49 @@ func (a *App) OpenWithCustomTool(directoryID string, openerID string) error {
 		}
 	}
 	return errors.New("未找到打开方式：" + openerID)
+}
+
+func (a *App) StartEmbeddedTerminal(directoryID string) (terminal.SessionInfo, error) {
+	dir, err := a.resolveDirectory(directoryID)
+	if err != nil {
+		return terminal.SessionInfo{}, err
+	}
+	title := dir
+	for _, item := range a.state.Directories {
+		if item.ID == directoryID {
+			title = item.Name
+			break
+		}
+	}
+	return a.terminal.Start(dir, title)
+}
+
+func (a *App) GetTerminalSessions() []terminal.SessionInfo {
+	return a.terminal.Sessions()
+}
+
+func (a *App) WriteTerminalInput(sessionID string, input string) error {
+	return a.terminal.Write(sessionID, input)
+}
+
+func (a *App) ResizeTerminal(sessionID string, cols int, rows int) error {
+	return a.terminal.Resize(sessionID, cols, rows)
+}
+
+func (a *App) StopTerminal(sessionID string) error {
+	return a.terminal.Stop(sessionID)
+}
+
+func (a *App) SaveAttachment(request attachment.SaveRequest) (attachment.FileInfo, error) {
+	if strings.TrimSpace(request.AttachmentRootPath) == "" {
+		a.state = a.GetAppState()
+		request.AttachmentRootPath = a.state.UI.AttachmentRootPath
+	}
+	return a.attach.Save(request)
+}
+
+func (a *App) OpenAttachment(pathValue string) error {
+	return a.attach.Open(pathValue)
 }
 
 func (a *App) ValidatePath(pathValue string) bool {
