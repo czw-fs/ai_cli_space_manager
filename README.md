@@ -1,8 +1,8 @@
-# OpenWorkspacePS
+# ai_cli_space_manager
 
-OpenWorkspacePS 是一个面向 AI 编程工作流的 Windows 桌面工作区启动器。它把常用项目目录、IDE、外部工具、内嵌 PowerShell 终端和 Codex CLI 输入增强能力放在同一个界面里，适合经常在多个代码仓库、文档目录、命令行会话和 AI Agent 之间切换的开发者。
+ai_cli_space_manager 是一个面向 AI 编程工作流的 Windows 桌面工作区启动器。它把常用项目目录、IDE、外部工具、内嵌 PowerShell 终端和 Codex CLI 输入增强能力放在同一个界面里，适合经常在多个代码仓库、文档目录、命令行会话和 AI Agent 之间切换的开发者。
 
-它的核心目标不是替代 Codex CLI，而是补齐传统终端在 AI 交互上的短板：普通终端里很难把剪切板截图、图片文件和较长提示词舒服地交给 AI；OpenWorkspacePS 提供一个可随时编辑的输入框，可以先组织提示词、粘贴图片附件，再一次性发送给终端里的 Codex CLI。
+它的核心目标不是替代 Codex CLI，而是补齐传统终端在 AI 交互上的短板：普通终端里很难把剪切板截图、图片文件和较长提示词舒服地交给 AI；ai_cli_space_manager 提供一个可随时编辑的输入框，可以先组织提示词、粘贴图片附件，再一次性发送给终端里的 Codex CLI。
 
 ## AI 工作流增强
 
@@ -26,7 +26,7 @@ OpenWorkspacePS 是一个面向 AI 编程工作流的 Windows 桌面工作区启
 
 ## 快速开始
 
-1. 运行 `build/bin` 目录下的 `OpenWorkspacePS-*.exe`。
+1. 运行 `build/bin` 目录下的 `ai_cli_space_manager-*.exe`。
 2. 点击顶部的“新增工作区”，在系统资源管理器中选择一个本机目录。
 3. 工作区会出现在列表中，可直接点击“文件夹”打开目录，或点击“内嵌终端”启动终端。
 4. 点击“管理打开方式”添加常用应用，例如 IDEA、VS Code、Typora 等。
@@ -71,7 +71,7 @@ OpenWorkspacePS 是一个面向 AI 编程工作流的 Windows 桌面工作区启
 - 在输入区粘贴剪切板截图或图片文件，附件会保存到配置的附件目录。
 - 发送时会把文本和附件路径组合成适合 Codex CLI 读取的输入。
 
-普通终端更适合快速敲命令，但不适合组织较长的 AI 提示词，也不方便粘贴图片。OpenWorkspacePS 的输入区可以当作 Codex CLI 的增强输入面板：先编辑、再粘贴图片、最后统一发送。
+普通终端更适合快速敲命令，但不适合组织较长的 AI 提示词，也不方便粘贴图片。ai_cli_space_manager 的输入区可以当作 Codex CLI 的增强输入面板：先编辑、再粘贴图片、最后统一发送。
 
 默认 PowerShell 7 路径在代码中配置为：
 
@@ -127,7 +127,7 @@ wails dev
 
 ```powershell
 $timestamp = Get-Date -Format 'yyyy-MM-dd-HH-mm-ss'
-& 'C:\dev\com\goProject\bin\wails.exe' build -o "OpenWorkspacePS-$timestamp.exe"
+& 'C:\dev\com\goProject\bin\wails.exe' build -o "ai_cli_space_manager-$timestamp.exe"
 ```
 
 输出文件在：
