@@ -16,10 +16,11 @@ type Group struct {
 }
 
 type Directory struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Path    string `json:"path"`
-	GroupID string `json:"groupId"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Path      string   `json:"path"`
+	GroupID   string   `json:"groupId"`
+	OpenerIDs []string `json:"openerIds,omitempty"`
 }
 
 type CustomOpener struct {
@@ -38,6 +39,7 @@ type UISettings struct {
 }
 
 type ColumnWidths struct {
+	Search  int `json:"search"`
 	Name    int `json:"name"`
 	Group   int `json:"group"`
 	Path    int `json:"path"`
@@ -89,7 +91,7 @@ func DefaultState(exeDir string) AppState {
 			{
 				ID:              "idea",
 				Name:            "IDEA",
-				CommandTemplate: "\"C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe\" \"{path}\"",
+				CommandTemplate: "\"C:\\dev\\app\\IntelliJ IDEA 2025.2.4\\bin\\idea64.exe\"",
 			},
 		},
 		UI: defaultUISettings(),
@@ -122,7 +124,7 @@ func (s *Store) Load() (AppState, error) {
 
 	state.Groups = nonNilGroups(persisted.Groups)
 	state.Directories = nonNilDirectories(persisted.Directories)
-	state.CustomOpeners = nonNilOpeners(persisted.CustomOpeners)
+	state.CustomOpeners = dedupeOpeners(nonNilOpeners(persisted.CustomOpeners))
 	state.UI = normalizeUISettings(persisted.UI)
 	state.Config = ConfigStatus{
 		ConfigExists: true,
@@ -135,7 +137,7 @@ func (s *Store) Save(state AppState) error {
 	persisted := persistedState{
 		Groups:        nonNilGroups(state.Groups),
 		Directories:   nonNilDirectories(state.Directories),
-		CustomOpeners: nonNilOpeners(state.CustomOpeners),
+		CustomOpeners: dedupeOpeners(nonNilOpeners(state.CustomOpeners)),
 		UI:            normalizeUISettings(state.UI),
 	}
 	data, err := json.MarshalIndent(persisted, "", "  ")
@@ -182,6 +184,20 @@ func nonNilOpeners(items []CustomOpener) []CustomOpener {
 	return items
 }
 
+func dedupeOpeners(items []CustomOpener) []CustomOpener {
+	seen := make(map[string]bool, len(items))
+	result := make([]CustomOpener, 0, len(items))
+	for _, item := range items {
+		key := strings.ToLower(strings.TrimSpace(item.Name)) + "\x00" + strings.ToLower(strings.TrimSpace(item.CommandTemplate))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, item)
+	}
+	return result
+}
+
 func defaultUISettings() UISettings {
 	return UISettings{
 		PowerShellLaunchMode: "tab",
@@ -190,6 +206,7 @@ func defaultUISettings() UISettings {
 		SidebarWidth:         176,
 		ComposerHeight:       66,
 		ColumnWidths: ColumnWidths{
+			Search:  180,
 			Name:    120,
 			Group:   90,
 			Path:    260,
@@ -212,6 +229,7 @@ func normalizeUISettings(settings UISettings) UISettings {
 	}
 	settings.SidebarWidth = clampColumnWidth(settings.SidebarWidth, defaults.SidebarWidth, 128, 320)
 	settings.ComposerHeight = clampColumnWidth(settings.ComposerHeight, defaults.ComposerHeight, 48, 180)
+	settings.ColumnWidths.Search = clampColumnWidth(settings.ColumnWidths.Search, defaults.ColumnWidths.Search, 96, 420)
 	settings.ColumnWidths.Name = clampColumnWidth(settings.ColumnWidths.Name, defaults.ColumnWidths.Name, 72, 360)
 	settings.ColumnWidths.Group = clampColumnWidth(settings.ColumnWidths.Group, defaults.ColumnWidths.Group, 72, 260)
 	settings.ColumnWidths.Path = clampColumnWidth(settings.ColumnWidths.Path, defaults.ColumnWidths.Path, 140, 640)

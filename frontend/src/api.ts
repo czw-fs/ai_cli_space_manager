@@ -4,11 +4,14 @@ type BackendApi = {
   GetAppState(): Promise<AppState>;
   SaveAppState(state: AppState): Promise<void>;
   OpenDirectory(directoryId: string): Promise<void>;
+  SelectDirectory(): Promise<string>;
+  SelectApplication(): Promise<string>;
   OpenPowerShellAdmin(directoryId: string): Promise<void>;
   StartEmbeddedTerminal(directoryId: string): Promise<TerminalSession>;
   GetTerminalSessions(): Promise<TerminalSession[]>;
   WriteTerminalInput(sessionId: string, input: string): Promise<void>;
   ResizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>;
+  RenameTerminal(sessionId: string, title: string): Promise<TerminalSession>;
   StopTerminal(sessionId: string): Promise<void>;
   SaveAttachment(request: SaveAttachmentRequest): Promise<AttachmentFile>;
   OpenAttachment(path: string): Promise<void>;
@@ -31,6 +34,12 @@ export const api = {
   async openDirectory(directoryId: string): Promise<void> {
     return (await backend()).OpenDirectory(directoryId);
   },
+  async selectDirectory(): Promise<string> {
+    return (await backend()).SelectDirectory();
+  },
+  async selectApplication(): Promise<string> {
+    return (await backend()).SelectApplication();
+  },
   async openPowerShellAdmin(directoryId: string): Promise<void> {
     return (await backend()).OpenPowerShellAdmin(directoryId);
   },
@@ -45,6 +54,9 @@ export const api = {
   },
   async resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void> {
     return (await backend()).ResizeTerminal(sessionId, cols, rows);
+  },
+  async renameTerminal(sessionId: string, title: string): Promise<TerminalSession> {
+    return (await backend()).RenameTerminal(sessionId, title);
   },
   async stopTerminal(sessionId: string): Promise<void> {
     return (await backend()).StopTerminal(sessionId);

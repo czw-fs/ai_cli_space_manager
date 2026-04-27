@@ -123,6 +123,10 @@ func (a *App) ResizeTerminal(sessionID string, cols int, rows int) error {
 	return a.terminal.Resize(sessionID, cols, rows)
 }
 
+func (a *App) RenameTerminal(sessionID string, title string) (terminal.SessionInfo, error) {
+	return a.terminal.Rename(sessionID, title)
+}
+
 func (a *App) StopTerminal(sessionID string) error {
 	return a.terminal.Stop(sessionID)
 }
@@ -133,6 +137,23 @@ func (a *App) SaveAttachment(request attachment.SaveRequest) (attachment.FileInf
 		request.AttachmentRootPath = a.state.UI.AttachmentRootPath
 	}
 	return a.attach.Save(request)
+}
+
+func (a *App) SelectDirectory() (string, error) {
+	return wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title:                "选择工作区目录",
+		CanCreateDirectories: true,
+	})
+}
+
+func (a *App) SelectApplication() (string, error) {
+	return wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "选择应用程序",
+		Filters: []wailsruntime.FileFilter{
+			{DisplayName: "应用程序 (*.exe;*.lnk)", Pattern: "*.exe;*.lnk"},
+			{DisplayName: "所有文件 (*.*)", Pattern: "*.*"},
+		},
+	})
 }
 
 func (a *App) OpenAttachment(pathValue string) error {

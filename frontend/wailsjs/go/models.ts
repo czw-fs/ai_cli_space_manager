@@ -64,6 +64,7 @@ export namespace config {
 	    }
 	}
 	export class ColumnWidths {
+	    search: number;
 	    name: number;
 	    group: number;
 	    path: number;
@@ -76,6 +77,7 @@ export namespace config {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.search = source["search"];
 	        this.name = source["name"];
 	        this.group = source["group"];
 	        this.path = source["path"];
@@ -144,6 +146,7 @@ export namespace config {
 	    name: string;
 	    path: string;
 	    groupId: string;
+	    openerIds?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Directory(source);
@@ -155,6 +158,7 @@ export namespace config {
 	        this.name = source["name"];
 	        this.path = source["path"];
 	        this.groupId = source["groupId"];
+	        this.openerIds = source["openerIds"];
 	    }
 	}
 	export class Group {

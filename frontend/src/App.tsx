@@ -12,7 +12,15 @@ import "@xterm/xterm/css/xterm.css";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 import { api } from "./api";
 import { buildComposerWrites, shouldSendComposerOnEnter } from "./codexComposer";
+import {
+  availableOpeners,
+  pinOpener,
+  reorderPinnedOpener,
+  unpinOpener,
+  visibleOpeners,
+} from "./directoryOpeners";
 import { reorderDirectories } from "./directoryOrder";
+import { commandTemplateForApplication, nameFromApplicationPath } from "./openerCommand";
 import { shouldCopyTerminalSelection } from "./terminalInput";
 import type {
   AppState,
@@ -20,14 +28,17 @@ import type {
   ColumnWidths,
   CustomOpener,
   DirectoryItem,
-  Group,
   TerminalOutputEvent,
   TerminalSession,
-  ViewMode,
 } from "./types";
 import { emptyState } from "./types";
 
-type DialogMode = "directory" | "group" | "opener" | null;
+type DialogMode = "directory" | "opener" | null;
+type TerminalContextMenu = {
+  sessionId: string;
+  x: number;
+  y: number;
+} | null;
 
 type TerminalHandle = {
   terminal: Terminal;
@@ -52,30 +63,36 @@ const SIDEBAR_MAX_WIDTH = 320;
 const DEFAULT_COMPOSER_HEIGHT = 66;
 const COMPOSER_MIN_HEIGHT = 48;
 const COMPOSER_MAX_HEIGHT = 180;
+const DEFAULT_SEARCH_WIDTH = 260;
+const SEARCH_MIN_WIDTH = 180;
+const SEARCH_MAX_WIDTH = 420;
 
 const makeId = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(value)));
 
+const isCanceledFileDialogError = (error: unknown) =>
+  String(error).toLowerCase().includes("shellitem is nil");
+
 function App() {
   const [state, setState] = useState<AppState>(emptyState);
-  const [selectedGroup, setSelectedGroup] = useState("all");
-  const [viewMode, setViewMode] = useState<ViewMode>("grouped");
   const [query, setQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [dialog, setDialog] = useState<DialogMode>(null);
   const [editingDirectory, setEditingDirectory] = useState<DirectoryItem | null>(null);
-  const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [editingOpener, setEditingOpener] = useState<CustomOpener | null>(null);
   const [message, setMessage] = useState("");
   const [terminalSessions, setTerminalSessions] = useState<TerminalSession[]>([]);
   const [activeTerminalId, setActiveTerminalId] = useState("");
   const [activeArea, setActiveArea] = useState<"directories" | "terminal">("directories");
-  const [groupsCollapsed, setGroupsCollapsed] = useState(false);
   const [terminalsCollapsed, setTerminalsCollapsed] = useState(false);
+  const [terminalContextMenu, setTerminalContextMenu] = useState<TerminalContextMenu>(null);
+  const [renamingTerminalId, setRenamingTerminalId] = useState("");
+  const [terminalRenameDraft, setTerminalRenameDraft] = useState("");
   const [composerBySession, setComposerBySession] = useState<Record<string, ComposerState>>({});
   const stateRef = useRef(state);
+  const terminalRenameCanceled = useRef(false);
   const terminalInstances = useRef<Record<string, TerminalHandle>>({});
   const pendingTerminalOutput = useRef<Record<string, string>>({});
 
@@ -122,27 +139,16 @@ function App() {
     };
   }, []);
 
-  const groupCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const directory of state.directories) {
-      counts.set(directory.groupId, (counts.get(directory.groupId) ?? 0) + 1);
-    }
-    return counts;
-  }, [state.directories]);
-
   const filteredDirectories = useMemo(() => {
     const value = query.trim().toLowerCase();
     return state.directories.filter((directory) => {
-      const group = state.groups.find((item) => item.id === directory.groupId);
-      const matchesGroup = selectedGroup === "all" || directory.groupId === selectedGroup;
       const matchesText =
         value === "" ||
         directory.name.toLowerCase().includes(value) ||
-        directory.path.toLowerCase().includes(value) ||
-        (group?.name.toLowerCase().includes(value) ?? false);
-      return matchesGroup && matchesText;
+        directory.path.toLowerCase().includes(value);
+      return matchesText;
     });
-  }, [query, selectedGroup, state.directories, state.groups]);
+  }, [query, state.directories]);
 
   const persist = async (next: AppState) => {
     applyState(next);
@@ -161,12 +167,15 @@ function App() {
     try {
       await api.saveAppState(next);
     } catch (error) {
+      if (isCanceledFileDialogError(error)) {
+        return;
+      }
       setMessage(String(error));
     }
   };
 
-  const setPowerShellLaunchMode = async (powerShellLaunchMode: AppState["ui"]["powerShellLaunchMode"]) => {
-    const next = { ...stateRef.current, ui: { ...stateRef.current.ui, powerShellLaunchMode } };
+  const setEnterKeyMode = async (enterKeyMode: AppState["ui"]["enterKeyMode"]) => {
+    const next = { ...stateRef.current, ui: { ...stateRef.current.ui, enterKeyMode } };
     applyState(next);
     try {
       await api.saveAppState(next);
@@ -175,8 +184,36 @@ function App() {
     }
   };
 
-  const setEnterKeyMode = async (enterKeyMode: AppState["ui"]["enterKeyMode"]) => {
-    const next = { ...stateRef.current, ui: { ...stateRef.current.ui, enterKeyMode } };
+  const saveDirectoryOpeners = async (directory: DirectoryItem) => {
+    const next = {
+      ...stateRef.current,
+      directories: stateRef.current.directories.map((item) => (item.id === directory.id ? directory : item)),
+    };
+    applyState(next);
+    try {
+      await api.saveAppState(next);
+    } catch (error) {
+      setMessage(String(error));
+    }
+  };
+
+  const updateSearchWidth = (searchWidth: number) => {
+    const value = clampNumber(searchWidth, SEARCH_MIN_WIDTH, SEARCH_MAX_WIDTH);
+    updateState((current) => ({
+      ...current,
+      ui: { ...current.ui, columnWidths: { ...current.ui.columnWidths, search: value } },
+    }));
+  };
+
+  const persistSearchWidth = async (searchWidth: number) => {
+    const value = clampNumber(searchWidth, SEARCH_MIN_WIDTH, SEARCH_MAX_WIDTH);
+    const next = {
+      ...stateRef.current,
+      ui: {
+        ...stateRef.current.ui,
+        columnWidths: { ...stateRef.current.ui.columnWidths, search: value },
+      },
+    };
     applyState(next);
     try {
       await api.saveAppState(next);
@@ -259,15 +296,6 @@ function App() {
     closeDialog();
   };
 
-  const saveGroup = async (group: Group) => {
-    const exists = state.groups.some((item) => item.id === group.id);
-    await persist({
-      ...state,
-      groups: exists ? state.groups.map((item) => (item.id === group.id ? group : item)) : [...state.groups, group],
-    });
-    closeDialog();
-  };
-
   const saveOpener = async (opener: CustomOpener) => {
     const exists = state.customOpeners.some((item) => item.id === opener.id);
     await persist({
@@ -281,17 +309,6 @@ function App() {
 
   const removeDirectory = async (id: string) => {
     await persist({ ...state, directories: state.directories.filter((item) => item.id !== id) });
-  };
-
-  const removeGroup = async (id: string) => {
-    await persist({
-      ...state,
-      groups: state.groups.filter((item) => item.id !== id),
-      directories: state.directories.map((item) => (item.groupId === id ? { ...item, groupId: "" } : item)),
-    });
-    if (selectedGroup === id) {
-      setSelectedGroup("all");
-    }
   };
 
   const removeOpener = async (id: string) => {
@@ -315,6 +332,27 @@ function App() {
   const openAction = async (action: () => Promise<void>) => {
     try {
       await action();
+    } catch (error) {
+      setMessage(String(error));
+    }
+  };
+
+  const addWorkspace = async () => {
+    try {
+      const selectedPath = (await api.selectDirectory()).trim();
+      if (!selectedPath) {
+        return;
+      }
+      const normalizedPath = selectedPath.replace(/[\\/]+$/, "");
+      const name = normalizedPath.split(/[\\/]/).filter(Boolean).pop() || normalizedPath || selectedPath;
+      const next = {
+        ...stateRef.current,
+        directories: [
+          ...stateRef.current.directories,
+          { id: makeId("dir"), name, path: selectedPath, groupId: "" },
+        ],
+      };
+      await persist(next);
     } catch (error) {
       setMessage(String(error));
     }
@@ -354,6 +392,55 @@ function App() {
     }
   };
 
+  const openTerminalContextMenu = (event: ReactMouseEvent, session: TerminalSession) => {
+    event.preventDefault();
+    setActiveTerminalId(session.id);
+    setActiveArea("terminal");
+    setTerminalContextMenu({ sessionId: session.id, x: event.clientX, y: event.clientY });
+  };
+
+  const closeTerminalContextMenu = () => {
+    setTerminalContextMenu(null);
+  };
+
+  const beginRenameTerminalSession = (sessionId: string) => {
+    const session = terminalSessions.find((item) => item.id === sessionId);
+    if (!session) {
+      return;
+    }
+    terminalRenameCanceled.current = false;
+    setTerminalRenameDraft(session.title);
+    setRenamingTerminalId(sessionId);
+  };
+
+  const cancelRenameTerminalSession = () => {
+    terminalRenameCanceled.current = true;
+    setRenamingTerminalId("");
+    setTerminalRenameDraft("");
+  };
+
+  const commitRenameTerminalSession = async (sessionId: string) => {
+    if (terminalRenameCanceled.current) {
+      terminalRenameCanceled.current = false;
+      return;
+    }
+    const nextTitle = terminalRenameDraft.trim();
+    const session = terminalSessions.find((item) => item.id === sessionId);
+    setRenamingTerminalId("");
+    setTerminalRenameDraft("");
+    if (!session || !nextTitle || nextTitle === session.title) {
+      return;
+    }
+    try {
+      const renamed = await api.renameTerminal(sessionId, nextTitle);
+      setTerminalSessions((current) =>
+        current.map((item) => (item.id === sessionId ? renamed : item)),
+      );
+    } catch (error) {
+      setMessage(String(error));
+    }
+  };
+
   const handleTerminalError = useCallback((error: unknown) => {
     setMessage(String(error));
   }, []);
@@ -361,14 +448,9 @@ function App() {
   const closeDialog = () => {
     setDialog(null);
     setEditingDirectory(null);
-    setEditingGroup(null);
     setEditingOpener(null);
   };
 
-  const visibleGroups = viewMode === "grouped"
-    ? state.groups.filter((group) => selectedGroup === "all" || selectedGroup === group.id)
-    : [];
-  const ungroupedDirectories = filteredDirectories.filter((item) => item.groupId === "");
   const sidebarWidth = clampNumber(
     state.ui.sidebarWidth || DEFAULT_SIDEBAR_WIDTH,
     SIDEBAR_MIN_WIDTH,
@@ -380,51 +462,17 @@ function App() {
     <div className={`app-shell ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
       <div className="workspace" style={workspaceStyle}>
         <aside className="sidebar">
-          <div className="sidebar-head collapsible-head">
-            <button
-              className={groupsCollapsed ? "collapse-button collapsed" : "collapse-button"}
-              type="button"
-              aria-label={groupsCollapsed ? "展开分组" : "折叠分组"}
-              aria-expanded={!groupsCollapsed}
-              onClick={() => setGroupsCollapsed((current) => !current)}
-            >
-              ▾
-            </button>
+          <div className="sidebar-head workspace-head collapsible-head">
             <button
               className={activeArea === "directories" ? "sidebar-title active" : "sidebar-title"}
               type="button"
               onClick={() => {
-                setSelectedGroup("all");
                 setActiveArea("directories");
               }}
             >
-              分组
+              <span>工作区</span>
+              <span className="sidebar-count">{state.directories.length}</span>
             </button>
-          </div>
-          <div className={groupsCollapsed ? "sidebar-section collapsed" : "sidebar-section"}>
-            <button
-              className={activeArea === "directories" && selectedGroup === "all" ? "nav-item active" : "nav-item"}
-              onClick={() => {
-                setSelectedGroup("all");
-                setActiveArea("directories");
-              }}
-            >
-              <span>全部目录</span><span>{state.directories.length}</span>
-            </button>
-            {state.groups.map((group) => (
-              <div className="nav-row" key={group.id}>
-                <button
-                  className={activeArea === "directories" && selectedGroup === group.id ? "nav-item active" : "nav-item"}
-                  onClick={() => {
-                    setSelectedGroup(group.id);
-                    setActiveArea("directories");
-                  }}
-                >
-                  <span>{group.name}</span><span>{groupCounts.get(group.id) ?? 0}</span>
-                </button>
-                <button className="mini-icon" title="编辑分组" onClick={() => { setEditingGroup(group); setDialog("group"); }}>✎</button>
-              </div>
-            ))}
           </div>
           <div className="sidebar-head terminal-head collapsible-head">
             <button
@@ -451,16 +499,44 @@ function App() {
             {terminalSessions.length === 0 && <div className="sidebar-empty">暂无终端</div>}
             {terminalSessions.map((session) => (
               <div className="terminal-nav-row" key={session.id}>
-                <button
-                  className={activeArea === "terminal" && activeTerminalId === session.id ? "nav-item terminal-item active" : "nav-item terminal-item"}
-                  onClick={() => {
-                    setActiveTerminalId(session.id);
-                    setActiveArea("terminal");
-                  }}
-                >
-                  <span>{session.title}</span>
-                  <span className={session.running ? "run-dot running" : "run-dot"} />
-                </button>
+                {renamingTerminalId === session.id ? (
+                  <div
+                    className={activeArea === "terminal" && activeTerminalId === session.id ? "nav-item terminal-item active terminal-editing" : "nav-item terminal-item terminal-editing"}
+                    onContextMenu={(event) => openTerminalContextMenu(event, session)}
+                  >
+                    <input
+                      className="terminal-rename-input"
+                      value={terminalRenameDraft}
+                      autoFocus
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(event) => setTerminalRenameDraft(event.target.value)}
+                      onBlur={() => commitRenameTerminalSession(session.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        } else if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelRenameTerminalSession();
+                        }
+                      }}
+                    />
+                    <span className={session.running ? "run-dot running" : "run-dot"} />
+                  </div>
+                ) : (
+                  <button
+                    className={activeArea === "terminal" && activeTerminalId === session.id ? "nav-item terminal-item active" : "nav-item terminal-item"}
+                    onContextMenu={(event) => openTerminalContextMenu(event, session)}
+                    onClick={() => {
+                      closeTerminalContextMenu();
+                      setActiveTerminalId(session.id);
+                      setActiveArea("terminal");
+                    }}
+                  >
+                    <span>{session.title}</span>
+                    <span className={session.running ? "run-dot running" : "run-dot"} />
+                  </button>
+                )}
                 <button
                   type="button"
                   className="terminal-nav-close"
@@ -476,6 +552,24 @@ function App() {
               </div>
             ))}
           </div>
+          {terminalContextMenu && (
+            <div
+              className="context-menu terminal-context-menu"
+              style={{ left: terminalContextMenu.x, top: terminalContextMenu.y }}
+              onMouseDown={(event) => event.stopPropagation()}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  beginRenameTerminalSession(terminalContextMenu.sessionId);
+                  closeTerminalContextMenu();
+                }}
+              >
+                重命名
+              </button>
+            </div>
+          )}
         </aside>
 
         <button
@@ -498,48 +592,29 @@ function App() {
           />
         )}
 
-        <main className="main-panel">
+        <main className="main-panel" onMouseDown={closeTerminalContextMenu}>
           {activeArea === "directories" && (
             <>
               <section className="toolbar">
-                <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="搜索名称、分组或路径" placeholder="搜索名称、分组或路径" />
-                <select
-                  value={selectedGroup}
-                  onChange={(event) => {
-                    setSelectedGroup(event.target.value);
-                    setActiveArea("directories");
-                  }}
-                >
-                  <option value="all">全部目录</option>
-                  {state.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
-                </select>
-                <div className="launch-toggle" aria-label="PowerShell 打开方式">
-                  <button
-                    className={state.ui.powerShellLaunchMode === "tab" ? "active" : ""}
-                    type="button"
-                    onClick={() => setPowerShellLaunchMode("tab")}
-                  >
-                    新增标签页
-                  </button>
-                  <button
-                    className={state.ui.powerShellLaunchMode === "window" ? "active" : ""}
-                    type="button"
-                    onClick={() => setPowerShellLaunchMode("window")}
-                  >
-                    新终端窗口
-                  </button>
-                </div>
-                <button onClick={() => { setEditingOpener(null); setDialog("opener"); }}>打开方式</button>
-                <button onClick={() => { setEditingGroup(null); setDialog("group"); }}>新增分组</button>
-                <button className="primary" onClick={() => { setEditingDirectory(null); setDialog("directory"); }}>新增目录</button>
+                <ResizableSearchInput
+                  value={query}
+                  width={state.ui.columnWidths.search || DEFAULT_SEARCH_WIDTH}
+                  onChange={setQuery}
+                  onWidthChange={updateSearchWidth}
+                  onWidthCommit={persistSearchWidth}
+                />
+                <button onClick={() => { setEditingOpener(null); setDialog("opener"); }}>管理打开方式</button>
+                <button className="primary" onClick={addWorkspace}>新增工作区</button>
+                <button
+                  className="more-button"
+                  type="button"
+                  title="更多"
+                  aria-label="更多操作"
+                >...</button>
               </section>
 
               <section className="viewbar">
-                <div className="segmented">
-                  <button className={viewMode === "grouped" ? "active" : ""} onClick={() => setViewMode("grouped")}>分组</button>
-                  <button className={viewMode === "flat" ? "active" : ""} onClick={() => setViewMode("flat")}>平铺</button>
-                </div>
-                <span>{filteredDirectories.length} 个目录，{state.customOpeners.length} 个自定义打开方式</span>
+                <span>{filteredDirectories.length} 个工作区，{state.customOpeners.length} 个自定义打开方式</span>
               </section>
             </>
           )}
@@ -554,58 +629,20 @@ function App() {
 
           {activeArea === "directories" ? (
             <section className="table-wrap">
-                {viewMode === "grouped" && selectedGroup === "all" && (visibleGroups.length > 0 || ungroupedDirectories.length > 0) ? (
-                  <>
-                    {visibleGroups.map((group) => (
-                      <DirectoryTable
-                        key={group.id}
-                        title={group.name}
-                        directories={filteredDirectories.filter((item) => item.groupId === group.id)}
-                        groups={state.groups}
-                        customOpeners={state.customOpeners}
-                        columnWidths={state.ui.columnWidths}
-                        onOpenAction={openAction}
-                        onStartEmbeddedTerminal={startEmbeddedTerminal}
-                        onEditDirectory={(directory) => { setEditingDirectory(directory); setDialog("directory"); }}
-                        onRemoveDirectory={removeDirectory}
-                        onReorderDirectory={reorderDirectory}
-                        onColumnWidthsChange={updateColumnWidths}
-                        onColumnWidthsCommit={persistColumnWidths}
-                      />
-                    ))}
-                    {ungroupedDirectories.length > 0 && (
-                      <DirectoryTable
-                        title="未分组"
-                        directories={ungroupedDirectories}
-                        groups={state.groups}
-                        customOpeners={state.customOpeners}
-                        columnWidths={state.ui.columnWidths}
-                        onOpenAction={openAction}
-                        onStartEmbeddedTerminal={startEmbeddedTerminal}
-                        onEditDirectory={(directory) => { setEditingDirectory(directory); setDialog("directory"); }}
-                        onRemoveDirectory={removeDirectory}
-                        onReorderDirectory={reorderDirectory}
-                        onColumnWidthsChange={updateColumnWidths}
-                        onColumnWidthsCommit={persistColumnWidths}
-                      />
-                    )}
-                  </>
-                ) : (
-                  <DirectoryTable
-                    title={selectedGroup === "all" ? "全部目录" : state.groups.find((item) => item.id === selectedGroup)?.name ?? "未分组"}
-                    directories={filteredDirectories}
-                    groups={state.groups}
-                    customOpeners={state.customOpeners}
-                    columnWidths={state.ui.columnWidths}
-                    onOpenAction={openAction}
-                    onStartEmbeddedTerminal={startEmbeddedTerminal}
-                    onEditDirectory={(directory) => { setEditingDirectory(directory); setDialog("directory"); }}
-                    onRemoveDirectory={removeDirectory}
-                    onReorderDirectory={reorderDirectory}
-                    onColumnWidthsChange={updateColumnWidths}
-                    onColumnWidthsCommit={persistColumnWidths}
-                  />
-                )}
+              <DirectoryTable
+                title="工作区"
+                directories={filteredDirectories}
+                customOpeners={state.customOpeners}
+                columnWidths={state.ui.columnWidths}
+                onOpenAction={openAction}
+                onStartEmbeddedTerminal={startEmbeddedTerminal}
+                onEditDirectory={(directory) => { setEditingDirectory(directory); setDialog("directory"); }}
+                onRemoveDirectory={removeDirectory}
+                onReorderDirectory={reorderDirectory}
+                onUpdateDirectoryOpeners={saveDirectoryOpeners}
+                onColumnWidthsChange={updateColumnWidths}
+                onColumnWidthsCommit={persistColumnWidths}
+              />
             </section>
           ) : (
             <TerminalPanel
@@ -630,16 +667,13 @@ function App() {
         </main>
       </div>
 
-      <footer className="statusbar">
-        <span>Windows Terminal + PowerShell 7：C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.1.0_x64__8wekyb3d8bbwe\pwsh.exe</span>
-        <span>配置：{state.config.configPath || "exe 同级 config.json"}</span>
-      </footer>
-
       {dialog === "directory" && (
-        <DirectoryDialog directory={editingDirectory} groups={state.groups} onCancel={closeDialog} onSave={saveDirectory} />
-      )}
-      {dialog === "group" && (
-        <GroupDialog group={editingGroup} onCancel={closeDialog} onSave={saveGroup} onRemove={removeGroup} />
+        <DirectoryDialog
+          directory={editingDirectory}
+          onCancel={closeDialog}
+          onSave={saveDirectory}
+          onError={(error) => setMessage(String(error))}
+        />
       )}
       {dialog === "opener" && (
         <OpenerDialog
@@ -649,6 +683,7 @@ function App() {
           onSave={saveOpener}
           onEdit={setEditingOpener}
           onRemove={removeOpener}
+          onError={(error) => setMessage(String(error))}
         />
       )}
     </div>
@@ -658,7 +693,6 @@ function App() {
 type TableProps = {
   title: string;
   directories: DirectoryItem[];
-  groups: Group[];
   customOpeners: CustomOpener[];
   columnWidths: ColumnWidths;
   onOpenAction: (action: () => Promise<void>) => void;
@@ -666,12 +700,13 @@ type TableProps = {
   onEditDirectory: (directory: DirectoryItem) => void;
   onRemoveDirectory: (id: string) => void;
   onReorderDirectory: (draggedId: string, targetId: string) => void;
+  onUpdateDirectoryOpeners: (directory: DirectoryItem) => void;
   onColumnWidthsChange: (columnWidths: ColumnWidths) => void;
   onColumnWidthsCommit: (columnWidths: ColumnWidths) => void;
 };
 
 function DirectoryTable(props: TableProps) {
-  const gridTemplateColumns = `${props.columnWidths.name}px ${props.columnWidths.group}px ${props.columnWidths.path}px ${props.columnWidths.actions}px ${props.columnWidths.manage}px`;
+  const gridTemplateColumns = `${props.columnWidths.name}px ${props.columnWidths.path}px ${props.columnWidths.actions}px ${props.columnWidths.manage}px`;
 
   const startResize = (key: keyof ColumnWidths, startEvent: ReactMouseEvent<HTMLButtonElement>) => {
     startEvent.preventDefault();
@@ -679,6 +714,7 @@ function DirectoryTable(props: TableProps) {
     const startWidth = props.columnWidths[key];
     let latestWidths = props.columnWidths;
     const minByKey: Record<keyof ColumnWidths, number> = {
+      search: SEARCH_MIN_WIDTH,
       name: 72,
       group: 72,
       path: 140,
@@ -686,6 +722,7 @@ function DirectoryTable(props: TableProps) {
       manage: 86,
     };
     const maxByKey: Record<keyof ColumnWidths, number> = {
+      search: SEARCH_MAX_WIDTH,
       name: 360,
       group: 260,
       path: 640,
@@ -709,21 +746,23 @@ function DirectoryTable(props: TableProps) {
     window.addEventListener("mouseup", onUp);
   };
 
-  return (
-    <div className="directory-section">
-      <div className="section-title">{props.title}</div>
-      <div className="directory-grid" style={{ gridTemplateColumns }}>
-        <div className="grid-head">名称<ResizeHandle onMouseDown={(event) => startResize("name", event)} /></div>
-        <div className="grid-head">分组<ResizeHandle onMouseDown={(event) => startResize("group", event)} /></div>
+    return (
+      <div className="directory-section">
+        <div className="section-title">{props.title}</div>
+        <div className="directory-grid" style={{ gridTemplateColumns }}>
+          <div className="grid-head">名称<ResizeHandle onMouseDown={(event) => startResize("name", event)} /></div>
         <div className="grid-head">路径<ResizeHandle onMouseDown={(event) => startResize("path", event)} /></div>
         <div className="grid-head">打开方式<ResizeHandle onMouseDown={(event) => startResize("actions", event)} /></div>
         <div className="grid-head">操作<ResizeHandle onMouseDown={(event) => startResize("manage", event)} /></div>
 
         {props.directories.length === 0 && (
-          <div className="empty-cell" style={{ gridColumn: "1 / -1" }}>暂无目录</div>
+          <div className="empty-cell" style={{ gridColumn: "1 / -1" }}>暂无工作区</div>
         )}
         {props.directories.map((directory) => {
-          const group = props.groups.find((item) => item.id === directory.groupId);
+          const pinnedOpeners = visibleOpeners(directory, props.customOpeners);
+          const hiddenOpeners = availableOpeners(directory, props.customOpeners);
+          const openerDragType = "application/x-openworkspace-opener";
+
           return (
             <div className="grid-row" style={{ display: "contents" }} key={directory.id}>
               <div
@@ -748,21 +787,11 @@ function DirectoryTable(props: TableProps) {
                 <span className="drag-handle" aria-hidden="true">⋮⋮</span>{directory.name}
               </div>
               <div
-                className="grid-cell"
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  const draggedId = event.dataTransfer.getData("text/plain");
-                  if (draggedId) {
-                    props.onReorderDirectory(draggedId, directory.id);
-                  }
-                }}
-              >
-                <span className="tag">{group?.name || "未分组"}</span>
-              </div>
-              <div
                 className="grid-cell path-cell"
-                onDragOver={(event) => event.preventDefault()}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                }}
                 onDrop={(event) => {
                   event.preventDefault();
                   const draggedId = event.dataTransfer.getData("text/plain");
@@ -775,30 +804,62 @@ function DirectoryTable(props: TableProps) {
               </div>
               <div className="grid-cell">
                 <div className="row-actions">
-                  <button className="soft-primary" onClick={() => props.onOpenAction(() => api.openPowerShellAdmin(directory.id))}>管理员 PowerShell 7</button>
                   <button onClick={() => props.onStartEmbeddedTerminal(directory)}>内嵌终端</button>
                   <button onClick={() => props.onOpenAction(() => api.openDirectory(directory.id))}>文件夹</button>
-                  {props.customOpeners.slice(0, 1).map((opener) => (
-                    <button key={opener.id} onClick={() => props.onOpenAction(() => api.openWithCustomTool(directory.id, opener.id))}>{opener.name}</button>
-                  ))}
-                  {props.customOpeners.length > 1 && (
-                    <select
-                      aria-label="更多工具"
-                      defaultValue=""
-                      onChange={(event) => {
-                        const openerId = event.target.value;
-                        event.currentTarget.value = "";
-                        if (openerId) {
-                          props.onOpenAction(() => api.openWithCustomTool(directory.id, openerId));
+                  {pinnedOpeners.map((opener) => (
+                    <button
+                      key={opener.id}
+                      draggable
+                      title="拖动调整顺序"
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData(openerDragType, opener.id);
+                      }}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "move";
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const draggedId = event.dataTransfer.getData(openerDragType);
+                        if (draggedId) {
+                          props.onUpdateDirectoryOpeners(
+                            reorderPinnedOpener(directory, draggedId, opener.id, props.customOpeners),
+                          );
                         }
                       }}
+                      onClick={() => props.onOpenAction(() => api.openWithCustomTool(directory.id, opener.id))}
                     >
-                      <option value="">更多工具</option>
-                      {props.customOpeners.slice(1).map((opener) => (
-                        <option key={opener.id} value={opener.id}>{opener.name}</option>
-                      ))}
-                    </select>
-                  )}
+                      {opener.name}
+                    </button>
+                  ))}
+                  <select
+                    aria-label="更多工具"
+                    defaultValue=""
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const draggedId = event.dataTransfer.getData(openerDragType);
+                      if (draggedId) {
+                        props.onUpdateDirectoryOpeners(unpinOpener(directory, draggedId, props.customOpeners));
+                      }
+                    }}
+                    onChange={(event) => {
+                      const openerId = event.target.value;
+                      event.currentTarget.value = "";
+                      if (openerId) {
+                        props.onUpdateDirectoryOpeners(pinOpener(directory, openerId, props.customOpeners));
+                      }
+                    }}
+                  >
+                    <option value="">更多工具</option>
+                    {hiddenOpeners.map((opener) => (
+                      <option key={opener.id} value={opener.id}>{opener.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="grid-cell">
@@ -817,6 +878,58 @@ function DirectoryTable(props: TableProps) {
 
 function ResizeHandle({ onMouseDown }: { onMouseDown: (event: ReactMouseEvent<HTMLButtonElement>) => void }) {
   return <button className="resize-handle" type="button" aria-label="调整列宽" onMouseDown={onMouseDown} />;
+}
+
+function ResizableSearchInput({
+  value,
+  width,
+  onChange,
+  onWidthChange,
+  onWidthCommit,
+}: {
+  value: string;
+  width: number;
+  onChange: (value: string) => void;
+  onWidthChange: (width: number) => void;
+  onWidthCommit: (width: number) => void;
+}) {
+  const resolvedWidth = clampNumber(width || DEFAULT_SEARCH_WIDTH, SEARCH_MIN_WIDTH, SEARCH_MAX_WIDTH);
+
+  const handleResizeMouseDown = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = resolvedWidth;
+
+    const onMove = (moveEvent: MouseEvent) => {
+      onWidthChange(startWidth + moveEvent.clientX - startX);
+    };
+    const onUp = (upEvent: MouseEvent) => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      onWidthCommit(startWidth + upEvent.clientX - startX);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  return (
+    <div className="search-resize" style={{ width: `${resolvedWidth}px` }}>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        aria-label="搜索名称或路径"
+        placeholder="搜索名称或路径"
+      />
+      <button
+        className="resize-handle"
+        type="button"
+        aria-label="调整搜索框宽度"
+        title="拖动调整搜索框宽度"
+        onMouseDown={handleResizeMouseDown}
+      />
+    </div>
+  );
 }
 
 function writeTerminalOutput(handle: TerminalHandle, data: string) {
@@ -1147,7 +1260,7 @@ function TerminalPanel({
   return (
     <div className="terminal-panel" onMouseDown={focusActiveTerminal}>
       {sessions.length === 0 ? (
-        <div className="terminal-empty">点击目录行的“内嵌终端”创建会话</div>
+        <div className="terminal-empty">点击工作区行的“内嵌终端”创建会话</div>
       ) : (
         <div ref={terminalHostRef} className="terminal-host" />
       )}
@@ -1259,93 +1372,134 @@ function readFileAsDataURL(file: File): Promise<string> {
   });
 }
 
-function DirectoryDialog({ directory, groups, onCancel, onSave }: {
+function DirectoryDialog({ directory, onCancel, onSave, onError }: {
   directory: DirectoryItem | null;
-  groups: Group[];
   onCancel: () => void;
   onSave: (directory: DirectoryItem) => void;
+  onError: (error: unknown) => void;
 }) {
   const [name, setName] = useState(directory?.name ?? "");
   const [path, setPath] = useState(directory?.path ?? "");
-  const [groupId, setGroupId] = useState(directory?.groupId ?? groups[0]?.id ?? "");
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    onSave({ id: directory?.id ?? makeId("dir"), name, path, groupId });
+    onSave({ id: directory?.id ?? makeId("dir"), name, path, groupId: "", openerIds: directory?.openerIds });
+  };
+
+  const selectWorkspacePath = async () => {
+    try {
+      const selectedPath = (await api.selectDirectory()).trim();
+      if (!selectedPath) {
+        return;
+      }
+      setPath(selectedPath);
+      if (!name.trim()) {
+        const normalizedPath = selectedPath.replace(/[\\/]+$/, "");
+        setName(normalizedPath.split(/[\\/]/).filter(Boolean).pop() || normalizedPath || selectedPath);
+      }
+    } catch (error) {
+      if (isCanceledFileDialogError(error)) {
+        return;
+      }
+      onError(error);
+    }
   };
 
   return (
     <div className="modal-backdrop">
       <form className="modal" onSubmit={submit}>
-        <h2>{directory ? "编辑目录" : "新增目录"}</h2>
-        <label>名称<input value={name} onChange={(event) => setName(event.target.value)} required /></label>
-        <label>路径<input value={path} onChange={(event) => setPath(event.target.value)} required /></label>
-        <label>分组<select value={groupId} onChange={(event) => setGroupId(event.target.value)}><option value="">未分组</option>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+        <h2>{directory ? "编辑工作区" : "新增工作区"}</h2>
+        <label>工作区名称<input value={name} onChange={(event) => setName(event.target.value)} required /></label>
+        <label>
+          工作区路径
+          <div className="file-picker-row">
+            <input value={path} onChange={(event) => setPath(event.target.value)} required />
+            <button type="button" onClick={selectWorkspacePath}>选择目录</button>
+          </div>
+        </label>
         <div className="modal-actions"><button type="button" onClick={onCancel}>取消</button><button className="primary" type="submit">保存</button></div>
       </form>
     </div>
   );
 }
 
-function GroupDialog({ group, onCancel, onSave, onRemove }: {
-  group: Group | null;
-  onCancel: () => void;
-  onSave: (group: Group) => void;
-  onRemove: (id: string) => void;
-}) {
-  const [name, setName] = useState(group?.name ?? "");
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    onSave({ id: group?.id ?? makeId("group"), name });
-  };
-  return (
-    <div className="modal-backdrop">
-      <form className="modal" onSubmit={submit}>
-        <h2>{group ? "编辑分组" : "新增分组"}</h2>
-        <label>名称<input value={name} onChange={(event) => setName(event.target.value)} required /></label>
-        <div className="modal-actions">
-          {group && <button type="button" className="danger" onClick={() => { onRemove(group.id); onCancel(); }}>删除</button>}
-          <button type="button" onClick={onCancel}>取消</button>
-          <button className="primary" type="submit">保存</button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-function OpenerDialog({ opener, openers, onCancel, onSave, onEdit, onRemove }: {
+function OpenerDialog({ opener, openers, onCancel, onSave, onEdit, onRemove, onError }: {
   opener: CustomOpener | null;
   openers: CustomOpener[];
   onCancel: () => void;
   onSave: (opener: CustomOpener) => void;
   onEdit: (opener: CustomOpener | null) => void;
   onRemove: (id: string) => void;
+  onError: (error: unknown) => void;
 }) {
   const [name, setName] = useState(opener?.name ?? "");
-  const [commandTemplate, setCommandTemplate] = useState(opener?.commandTemplate ?? "\"C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe\" \"{path}\"");
+  const [commandTemplate, setCommandTemplate] = useState(opener?.commandTemplate ?? "");
+  const [selectingApplication, setSelectingApplication] = useState(false);
 
   useEffect(() => {
     setName(opener?.name ?? "");
-    setCommandTemplate(opener?.commandTemplate ?? "\"C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe\" \"{path}\"");
+    setCommandTemplate(opener?.commandTemplate ?? "");
   }, [opener]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    onSave({ id: opener?.id ?? makeId("opener"), name, commandTemplate });
+    onSave({ id: opener?.id ?? makeId("opener"), name: name.trim(), commandTemplate: commandTemplate.trim() });
+  };
+
+  const selectOpener = (target: CustomOpener | null) => {
+    onEdit(target);
+    setName(target?.name ?? "");
+    setCommandTemplate(target?.commandTemplate ?? "");
+  };
+
+  const selectApplication = async () => {
+    try {
+      setSelectingApplication(true);
+      const applicationPath = (await api.selectApplication()).trim();
+      if (!applicationPath) {
+        return;
+      }
+      setCommandTemplate(commandTemplateForApplication(applicationPath));
+      if (!name.trim()) {
+        setName(nameFromApplicationPath(applicationPath));
+      }
+    } catch (error) {
+      if (isCanceledFileDialogError(error)) {
+        return;
+      }
+      onError(error);
+    } finally {
+      setSelectingApplication(false);
+    }
   };
 
   return (
     <div className="modal-backdrop">
       <form className="modal wide" onSubmit={submit}>
-        <h2>{opener ? "编辑打开方式" : "新增打开方式"}</h2>
+        <h2>管理打开方式</h2>
         <div className="opener-list">
           {openers.map((item) => (
-            <button type="button" key={item.id} className={opener?.id === item.id ? "chip active" : "chip"} onClick={() => onEdit(item)}>{item.name}</button>
+            <button
+              type="button"
+              key={item.id}
+              className={opener?.id === item.id ? "chip active" : "chip"}
+              onClick={() => selectOpener(item)}
+            >
+              {item.name}
+            </button>
           ))}
-          <button type="button" className="chip" onClick={() => onEdit(null)}>新增</button>
+          <button type="button" className="chip" onClick={() => selectOpener(null)}>新增</button>
         </div>
         <label>名称<input value={name} onChange={(event) => setName(event.target.value)} required /></label>
-        <label>命令模板<input value={commandTemplate} onChange={(event) => setCommandTemplate(event.target.value)} required /></label>
+        <label>
+          打开方式
+          <div className="file-picker-row">
+            <input value={commandTemplate} onChange={(event) => setCommandTemplate(event.target.value)} required />
+            <button type="button" onClick={selectApplication} disabled={selectingApplication}>
+              {selectingApplication ? "选择中" : "选择应用"}
+            </button>
+          </div>
+        </label>
         <div className="modal-actions">
           {opener && <button type="button" className="danger" onClick={() => { onRemove(opener.id); onEdit(null); }}>删除</button>}
           <button type="button" onClick={onCancel}>取消</button>

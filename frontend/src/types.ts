@@ -8,6 +8,7 @@ export type DirectoryItem = {
   name: string;
   path: string;
   groupId: string;
+  openerIds?: string[];
 };
 
 export type CustomOpener = {
@@ -54,6 +55,7 @@ export type ConfigStatus = {
 };
 
 export type ColumnWidths = {
+  search: number;
   name: number;
   group: number;
   path: number;
@@ -91,6 +93,7 @@ export const emptyState: AppState = {
     sidebarWidth: 176,
     composerHeight: 66,
     columnWidths: {
+      search: 180,
       name: 120,
       group: 90,
       path: 260,

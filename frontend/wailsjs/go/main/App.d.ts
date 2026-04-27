@@ -16,6 +16,8 @@ export function OpenPowerShellAdmin(arg1:string):Promise<void>;
 
 export function OpenWithCustomTool(arg1:string,arg2:string):Promise<void>;
 
+export function RenameTerminal(arg1:string,arg2:string):Promise<terminal.SessionInfo>;
+
 export function ResizeTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
 
 export function ResolvePath(arg1:string):Promise<string>;
@@ -23,6 +25,10 @@ export function ResolvePath(arg1:string):Promise<string>;
 export function SaveAppState(arg1:config.AppState):Promise<void>;
 
 export function SaveAttachment(arg1:attachment.SaveRequest):Promise<attachment.FileInfo>;
+
+export function SelectApplication():Promise<string>;
+
+export function SelectDirectory():Promise<string>;
 
 export function StartEmbeddedTerminal(arg1:string):Promise<terminal.SessionInfo>;
 

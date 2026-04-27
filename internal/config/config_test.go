@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -26,6 +27,12 @@ func TestLoadMissingConfigUsesDefaults(t *testing.T) {
 	}
 	if len(state.CustomOpeners) != 1 || state.CustomOpeners[0].Name != "IDEA" {
 		t.Fatalf("default custom opener not initialized: %#v", state.CustomOpeners)
+	}
+	if strings.Contains(state.CustomOpeners[0].CommandTemplate, "{path}") {
+		t.Fatalf("default custom opener should store only the application path: %q", state.CustomOpeners[0].CommandTemplate)
+	}
+	if state.UI.ColumnWidths.Search != 180 {
+		t.Fatalf("default search width = %d, want 180", state.UI.ColumnWidths.Search)
 	}
 	if state.UI.ColumnWidths.Path == 0 {
 		t.Fatalf("default UI column widths were not initialized")
@@ -75,9 +82,28 @@ func TestSaveCreatesConfigNextToExeDir(t *testing.T) {
 	}
 }
 
+func TestLoadDeduplicatesEquivalentCustomOpeners(t *testing.T) {
+	dir := t.TempDir()
+	configText := `{"groups":[],"directories":[],"customOpeners":[{"id":"idea-1","name":"idea","commandTemplate":"\"C:\\app\\idea64.exe\""},{"id":"idea-2","name":"idea","commandTemplate":"\"C:\\app\\idea64.exe\""},{"id":"code","name":"code","commandTemplate":"\"C:\\app\\code.exe\""}],"ui":{"columnWidths":{}}}`
+	if err := os.WriteFile(filepath.Join(dir, ConfigFileName), []byte(configText), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	state, err := NewStore(dir).Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(state.CustomOpeners) != 2 {
+		t.Fatalf("custom openers = %#v, want 2 unique entries", state.CustomOpeners)
+	}
+	if state.CustomOpeners[0].ID != "idea-1" || state.CustomOpeners[1].ID != "code" {
+		t.Fatalf("custom opener order = %#v, want first duplicate kept", state.CustomOpeners)
+	}
+}
+
 func TestLoadNormalizesUISizesAndColumnWidths(t *testing.T) {
 	dir := t.TempDir()
-	configText := `{"groups":[],"directories":[],"customOpeners":[],"ui":{"powerShellLaunchMode":"window","sidebarWidth":80,"composerHeight":999,"columnWidths":{"name":1,"group":9999,"path":0,"actions":280,"manage":90}}}`
+	configText := `{"groups":[],"directories":[],"customOpeners":[],"ui":{"powerShellLaunchMode":"window","sidebarWidth":80,"composerHeight":999,"columnWidths":{"search":30,"name":1,"group":9999,"path":0,"actions":280,"manage":90}}}`
 	if err := os.WriteFile(filepath.Join(dir, ConfigFileName), []byte(configText), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -88,6 +114,9 @@ func TestLoadNormalizesUISizesAndColumnWidths(t *testing.T) {
 	}
 	if state.UI.ColumnWidths.Name != 72 {
 		t.Fatalf("name width = %d, want min clamp 72", state.UI.ColumnWidths.Name)
+	}
+	if state.UI.ColumnWidths.Search != 96 {
+		t.Fatalf("search width = %d, want min clamp 96", state.UI.ColumnWidths.Search)
 	}
 	if state.UI.ColumnWidths.Group != 260 {
 		t.Fatalf("group width = %d, want max clamp 260", state.UI.ColumnWidths.Group)
@@ -106,6 +135,52 @@ func TestLoadNormalizesUISizesAndColumnWidths(t *testing.T) {
 	}
 	if state.UI.ComposerHeight != 180 {
 		t.Fatalf("composer height = %d, want max clamp 180", state.UI.ComposerHeight)
+	}
+}
+
+func TestSavePersistsSearchColumnWidth(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	state := DefaultState(dir)
+	state.UI.ColumnWidths.Search = 240
+
+	if err := store.Save(state); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, ConfigFileName))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var persisted struct {
+		UI struct {
+			ColumnWidths struct {
+				Search int `json:"search"`
+			} `json:"columnWidths"`
+		} `json:"ui"`
+	}
+	if err := json.Unmarshal(content, &persisted); err != nil {
+		t.Fatalf("saved config is invalid json: %v", err)
+	}
+	if persisted.UI.ColumnWidths.Search != 240 {
+		t.Fatalf("saved search width = %d, want 240", persisted.UI.ColumnWidths.Search)
+	}
+}
+
+func TestLoadClampsSearchColumnWidthToFrontendMaximum(t *testing.T) {
+	dir := t.TempDir()
+	configText := `{"groups":[],"directories":[],"customOpeners":[],"ui":{"columnWidths":{"search":520}}}`
+	if err := os.WriteFile(filepath.Join(dir, ConfigFileName), []byte(configText), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	state, err := NewStore(dir).Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if state.UI.ColumnWidths.Search != 420 {
+		t.Fatalf("search width = %d, want max clamp 420", state.UI.ColumnWidths.Search)
 	}
 }
 

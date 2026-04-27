@@ -151,6 +151,24 @@ func (s *Service) Resize(sessionID string, cols int, rows int) error {
 	return item.pty.Resize(cols, rows)
 }
 
+func (s *Service) Rename(sessionID string, title string) (SessionInfo, error) {
+	nextTitle := strings.TrimSpace(title)
+	if nextTitle == "" {
+		return SessionInfo{}, errors.New("终端名称不能为空")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.sessions[sessionID]
+	if !ok {
+		return SessionInfo{}, errors.New("未找到终端：" + sessionID)
+	}
+	if !item.info.Running {
+		return SessionInfo{}, errors.New("终端已关闭：" + sessionID)
+	}
+	item.info.Title = nextTitle
+	return item.info, nil
+}
+
 func (s *Service) Stop(sessionID string) error {
 	item, err := s.get(sessionID)
 	if err != nil {

@@ -26,6 +26,10 @@ export function OpenWithCustomTool(arg1, arg2) {
   return window['go']['main']['App']['OpenWithCustomTool'](arg1, arg2);
 }
 
+export function RenameTerminal(arg1, arg2) {
+  return window['go']['main']['App']['RenameTerminal'](arg1, arg2);
+}
+
 export function ResizeTerminal(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResizeTerminal'](arg1, arg2, arg3);
 }
@@ -40,6 +44,14 @@ export function SaveAppState(arg1) {
 
 export function SaveAttachment(arg1) {
   return window['go']['main']['App']['SaveAttachment'](arg1);
+}
+
+export function SelectApplication() {
+  return window['go']['main']['App']['SelectApplication']();
+}
+
+export function SelectDirectory() {
+  return window['go']['main']['App']['SelectDirectory']();
 }
 
 export function StartEmbeddedTerminal(arg1) {
