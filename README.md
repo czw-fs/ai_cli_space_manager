@@ -1,19 +1,122 @@
-# README
+# OpenWorkspacePS
 
-## About
+OpenWorkspacePS 是一个 Windows 桌面工作区启动器，用来集中管理常用项目目录，并快速打开文件夹、IDE、外部工具和内嵌 PowerShell 终端。它适合经常在多个代码仓库、文档目录和命令行会话之间切换的开发者。
 
-This is the official Wails React-TS template.
+## 主要功能
 
-You can configure the project by editing `wails.json`. More information about the project settings can be found
-here: https://wails.io/docs/reference/project-config
+- 工作区管理：添加本机目录为工作区，支持搜索、编辑、删除和拖动排序。
+- 快速打开：每个工作区都可以一键打开文件夹、IDEA、Typora 等自定义应用。
+- 管理打开方式：在应用内新增、编辑、删除打开方式，并通过系统文件选择器选择本机应用。
+- 内嵌终端：为任意工作区启动 PowerShell 7 终端，会话显示在左侧终端列表中。
+- 终端输入区：支持向终端发送内容，支持粘贴截图或图片作为附件。
+- 布局记忆：搜索列、目录列、侧边栏、输入区高度等调整后会写入 `config.json`。
+- 主题切换：支持深色主题和白色主题，切换结果会持久化保存。
+- 配置独立：没有 `config.json` 时应用仍可启动并使用默认配置，后续保存操作会生成配置文件。
 
-## Live Development
+## 快速开始
 
-To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
-server that will provide very fast hot reload of your frontend changes. If you want to develop in a browser
-and have access to your Go methods, there is also a dev server that runs on http://localhost:34115. Connect
-to this in your browser, and you can call your Go code from devtools.
+1. 运行 `build/bin` 目录下的 `OpenWorkspacePS-*.exe`。
+2. 点击顶部的“新增工作区”，在系统资源管理器中选择一个本机目录。
+3. 工作区会出现在列表中，可直接点击“文件夹”打开目录，或点击“内嵌终端”启动终端。
+4. 点击“管理打开方式”添加常用应用，例如 IDEA、VS Code、Typora 等。
+5. 在工作区行里点击对应打开方式，即可用该应用打开当前工作区目录。
 
-## Building
+## 工作区
 
-To build a redistributable, production mode package, use `wails build`.
+工作区就是一个本机目录。新增工作区时，应用会根据目录名称自动填写工作区名称，也可以后续点击“编辑”修改名称和路径。
+
+工作区列表支持：
+
+- 按名称或路径搜索。
+- 拖动行左侧手柄调整顺序。
+- 拖动表头分隔线调整列宽。
+- 点击“编辑”修改工作区。
+- 点击“删除”移除工作区记录。
+
+## 打开方式
+
+点击顶部“管理打开方式”可以维护自定义应用。
+
+使用方式：
+
+1. 点击“新增”。
+2. 点击“选择应用”，在系统资源管理器中选择 `.exe` 或 `.lnk`。
+3. 应用会自动填写名称和命令。
+4. 点击“保存”。
+
+保存后，新的打开方式会出现在工作区行的“更多工具”中。常用工具可以固定到行内，也可以通过拖动调整顺序。
+
+## 终端
+
+点击工作区行的“内嵌终端”会在该目录下启动 PowerShell 7。左侧终端列表用于切换会话。
+
+终端支持：
+
+- 右键终端名称后选择“重命名”。
+- 直接在原名称处编辑，失去焦点后保存。
+- 点击终端右侧关闭按钮结束会话。
+- 在底部输入区输入内容并发送到当前终端。
+- 在输入区粘贴截图或图片文件，附件会保存到配置的附件目录。
+
+默认 PowerShell 7 路径在代码中配置为：
+
+```text
+C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.1.0_x64__8wekyb3d8bbwe\pwsh.exe
+```
+
+## 主题
+
+顶部工具栏提供主题切换按钮，可以在深色主题和白色主题之间切换。主题选择会保存到 `config.json`，下次打开应用时自动恢复。
+
+## 配置文件
+
+应用使用 exe 所在目录下的 `config.json` 保存工作区、打开方式和 UI 设置。
+
+如果没有 `config.json`，应用会使用默认配置运行，不会阻塞功能使用。执行新增工作区、修改主题、调整列宽等保存操作后，会自动写入配置文件。
+
+## 开发
+
+项目使用 Wails + Go + React + TypeScript。
+
+安装前端依赖：
+
+```powershell
+cd frontend
+npm install
+```
+
+运行前端测试：
+
+```powershell
+cd frontend
+npm test
+```
+
+运行 Go 测试：
+
+```powershell
+go test ./...
+```
+
+本地开发：
+
+```powershell
+wails dev
+```
+
+## 打包
+
+每次打包 exe 时，文件名需要追加时间戳，格式为 `yyyy-MM-dd-HH-mm-ss`。
+
+示例：
+
+```powershell
+$timestamp = Get-Date -Format 'yyyy-MM-dd-HH-mm-ss'
+& 'C:\dev\com\goProject\bin\wails.exe' build -o "OpenWorkspacePS-$timestamp.exe"
+```
+
+输出文件在：
+
+```text
+build\bin
+```
