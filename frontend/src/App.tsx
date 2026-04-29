@@ -141,6 +141,50 @@ function App() {
     });
   };
 
+  const syncCodexReplyFromSource = useCallback(
+    (sessionId: string, outputSource: string, sourceIsScreenSnapshot = false) => {
+      const activeReplyId = activeCodexReplyIdBySession.current[sessionId];
+      if (!activeReplyId) {
+        return;
+      }
+      const prompt = activeCodexPromptBySession.current[sessionId] ?? "";
+      const source = outputSource || activeCodexReplyRawBySession.current[sessionId] || "";
+      const replyText = terminalOutputToCodexTurnLiveText(source, prompt);
+      setCodexMessagesBySession((current) => {
+        const messages = current[sessionId] ?? [];
+        if (!messages.some((messageItem) => messageItem.id === activeReplyId)) {
+          return current;
+        }
+        return {
+          ...current,
+          [sessionId]: messages.map((messageItem) =>
+            messageItem.id === activeReplyId
+              ? {
+                  ...messageItem,
+                  content:
+                    sourceIsScreenSnapshot && replyText
+                      ? replyText
+                      : mergeCodexTurnLiveText(messageItem.content, replyText),
+                }
+              : messageItem,
+          ),
+        };
+      });
+      if (terminalOutputHasCodexTurnEndPrompt(source, prompt)) {
+        setCodexMessagesBySession((current) => ({
+          ...current,
+          [sessionId]: (current[sessionId] ?? []).map((messageItem) =>
+            messageItem.id === activeReplyId ? { ...messageItem, streaming: false } : messageItem,
+          ),
+        }));
+        delete activeCodexReplyIdBySession.current[sessionId];
+        delete activeCodexPromptBySession.current[sessionId];
+        delete activeCodexReplyRawBySession.current[sessionId];
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     api.getAppState().then(applyState).catch((error) => setMessage(String(error)));
     api.getTerminalSessions().then(setTerminalSessions).catch((error) => setMessage(String(error)));
@@ -164,49 +208,15 @@ function App() {
           rawOutput.length > CODEX_REPLY_RAW_BUFFER_LIMIT
             ? rawOutput.slice(rawOutput.length - CODEX_REPLY_RAW_BUFFER_LIMIT)
             : rawOutput;
-        const codexOutputSource =
-          terminalRawBySession.current[event.sessionId] ||
-          activeCodexReplyRawBySession.current[event.sessionId];
-        const replyText = terminalOutputToCodexTurnLiveText(
-          codexOutputSource,
-          activeCodexPromptBySession.current[event.sessionId] ?? "",
-        );
-        setCodexMessagesBySession((current) => {
-          const messages = current[event.sessionId] ?? [];
-          if (!messages.some((messageItem) => messageItem.id === activeReplyId)) {
-            return current;
-          }
-          return {
-            ...current,
-            [event.sessionId]: messages.map((messageItem) =>
-              messageItem.id === activeReplyId
-                ? { ...messageItem, content: mergeCodexTurnLiveText(messageItem.content, replyText) }
-                : messageItem,
-            ),
-          };
-        });
-        if (
-          terminalOutputHasCodexTurnEndPrompt(
-            codexOutputSource,
-            activeCodexPromptBySession.current[event.sessionId] ?? "",
-          )
-        ) {
-          setCodexMessagesBySession((current) => ({
-            ...current,
-            [event.sessionId]: (current[event.sessionId] ?? []).map((messageItem) =>
-              messageItem.id === activeReplyId ? { ...messageItem, streaming: false } : messageItem,
-            ),
-          }));
-          delete activeCodexReplyIdBySession.current[event.sessionId];
-          delete activeCodexPromptBySession.current[event.sessionId];
-          delete activeCodexReplyRawBySession.current[event.sessionId];
-        }
       }
       const handle = terminalInstances.current[event.sessionId];
       if (handle) {
-        writeTerminalOutput(handle, event.data);
+        writeTerminalOutput(handle, event.data, () =>
+          syncCodexReplyFromSource(event.sessionId, readTerminalBufferText(handle), true),
+        );
       } else {
         pendingTerminalOutput.current[event.sessionId] = `${pendingTerminalOutput.current[event.sessionId] ?? ""}${event.data}`;
+        syncCodexReplyFromSource(event.sessionId, terminalRawBySession.current[event.sessionId] ?? "");
       }
     });
     const offClosed = EventsOn("terminal:closed", (session: TerminalSession) => {
@@ -223,7 +233,7 @@ function App() {
       offOutput();
       offClosed();
     };
-  }, []);
+  }, [syncCodexReplyFromSource]);
 
   const filteredDirectories = useMemo(() => {
     const value = query.trim().toLowerCase();
@@ -812,6 +822,7 @@ function App() {
               codexComposerBySession={codexComposerBySession}
               onCodexMessagesChange={setCodexMessagesBySession}
               onCodexComposerChange={setCodexComposerBySession}
+              onCodexScreenSnapshot={(sessionId, screenText) => syncCodexReplyFromSource(sessionId, screenText, true)}
               onCodexReplyStart={(sessionId, replyId, prompt) => {
                 activeCodexReplyIdBySession.current[sessionId] = replyId;
                 activeCodexPromptBySession.current[sessionId] = prompt;
@@ -1093,16 +1104,36 @@ function ResizableSearchInput({
   );
 }
 
-function writeTerminalOutput(handle: TerminalHandle, data: string) {
+function writeTerminalOutput(handle: TerminalHandle, data: string, onFlushed?: () => void) {
   hideTerminalCursor(handle);
-  handle.terminal.write(data);
-  handle.terminal.write(TERMINAL_HIDE_CURSOR);
+  handle.terminal.write(data, () => {
+    onFlushed?.();
+    handle.terminal.write(TERMINAL_HIDE_CURSOR);
+  });
   if (handle.outputQuietTimer) {
     window.clearTimeout(handle.outputQuietTimer);
   }
   handle.outputQuietTimer = window.setTimeout(() => {
     showTerminalCursor(handle);
   }, TERMINAL_OUTPUT_IDLE_MS);
+}
+
+function readTerminalBufferText(handle: TerminalHandle) {
+  const buffer = handle.terminal.buffer.active;
+  const lines: string[] = [];
+  for (let index = 0; index < buffer.length; index += 1) {
+    const line = buffer.getLine(index);
+    if (!line) {
+      continue;
+    }
+    const text = line.translateToString(true);
+    if (line.isWrapped && lines.length > 0) {
+      lines[lines.length - 1] = `${lines[lines.length - 1]}${text}`;
+    } else {
+      lines.push(text);
+    }
+  }
+  return lines.join("\n");
 }
 
 function hideTerminalCursor(handle: TerminalHandle) {
@@ -1160,6 +1191,7 @@ function TerminalPanel({
   codexComposerBySession,
   onCodexMessagesChange,
   onCodexComposerChange,
+  onCodexScreenSnapshot,
   onCodexReplyStart,
   onCodexMessagesClear,
 }: {
@@ -1182,6 +1214,7 @@ function TerminalPanel({
   codexComposerBySession: Record<string, ComposerState>;
   onCodexMessagesChange: (value: SetStateAction<Record<string, CodexChatMessage[]>>) => void;
   onCodexComposerChange: (value: SetStateAction<Record<string, ComposerState>>) => void;
+  onCodexScreenSnapshot: (sessionId: string, screenText: string) => void;
   onCodexReplyStart: (sessionId: string, replyId: string, prompt: string) => void;
   onCodexMessagesClear: (sessionId: string) => void;
 }) {
@@ -1205,7 +1238,7 @@ function TerminalPanel({
 
   useEffect(() => {
     const host = terminalHostRef.current;
-    if (!host || !activeSession || view !== "terminal") {
+    if (!host || !activeSession) {
       return;
     }
 
@@ -1254,7 +1287,7 @@ function TerminalPanel({
 
     const pending = pendingOutput.current[activeSession.id];
     if (pending) {
-      writeTerminalOutput(handle, pending);
+      writeTerminalOutput(handle, pending, () => onCodexScreenSnapshot(activeSession.id, readTerminalBufferText(handle)));
       delete pendingOutput.current[activeSession.id];
     }
 
@@ -1282,7 +1315,9 @@ function TerminalPanel({
     resizeObserver.observe(host);
     scheduleFit();
     window.setTimeout(scheduleFit, 80);
-    handle.terminal.focus();
+    if (view === "terminal") {
+      handle.terminal.focus();
+    }
 
     return () => {
       window.cancelAnimationFrame(animationFrame);
@@ -1536,13 +1571,17 @@ function TerminalPanel({
 
   return (
     <div className={view === "codex" ? "terminal-panel codex-view-active" : "terminal-panel"} onMouseDown={focusActiveTerminal}>
+      {sessions.length > 0 ? (
+        <div
+          ref={terminalHostRef}
+          className={view === "terminal" ? "terminal-host" : "terminal-host terminal-host-hidden"}
+          aria-hidden={view !== "terminal"}
+        />
+      ) : view === "terminal" ? (
+        <div className="terminal-empty">点击工作区行的“内嵌终端”创建会话</div>
+      ) : null}
       {view === "terminal" ? (
         <>
-          {sessions.length === 0 ? (
-            <div className="terminal-empty">点击工作区行的“内嵌终端”创建会话</div>
-          ) : (
-            <div ref={terminalHostRef} className="terminal-host" />
-          )}
           <div className="codex-composer" onMouseDown={(event) => event.stopPropagation()}>
             <div className="composer-settings">
               <label>

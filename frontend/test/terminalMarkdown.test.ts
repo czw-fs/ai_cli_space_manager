@@ -192,6 +192,27 @@ assertEqual(
 
 assertEqual(
   terminalOutputToCodexTurnLiveText(
+    [
+      "OpenAI Codex (v0.125.0)",
+      "model: gpt-5.5 xhigh",
+      "directory: C:\\dev\\repo",
+      "",
+      "> hi",
+      "",
+      "• 你好。",
+      "",
+      "> Improve documentation in @filename",
+      "",
+      "gpt-5.5 xhigh · C:\\dev\\repo",
+    ].join("\n"),
+    "hi",
+  ),
+  "• 你好。",
+  "extracts the finished answer from the xterm screen buffer and ignores the next suggested input",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
     "OpenAI Codex\n\n> hi\n\n• 历史回答\n\n> Implement {feature}",
     "还没出现在屏幕的问题",
   ),
@@ -285,6 +306,15 @@ assertEqual(
   ),
   "• Working (1s · esc to interrupt)\n• Thinking\n\n我会先检查项目结构。\n\n最终回答",
   "merges overlapping final answer snapshots without duplicating text",
+);
+
+assertEqual(
+  mergeCodexTurnLiveText(
+    "• Working (0s · esc to interrupt)\n\n• 你好。",
+    "• 你好。",
+  ),
+  "• 你好。",
+  "removes stale busy status when the authoritative screen snapshot only contains the final answer",
 );
 
 assertEqual(

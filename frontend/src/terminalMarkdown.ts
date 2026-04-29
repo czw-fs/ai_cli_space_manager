@@ -92,6 +92,9 @@ export function mergeCodexTurnLiveText(current: string, nextSnapshot: string) {
     return nextText.slice(nextContainsCurrentAt);
   }
   if (currentText.includes(nextText)) {
+    if (containsOnlyBusyStatusAndSnapshotContent(currentText, nextText)) {
+      return nextText;
+    }
     return currentText;
   }
   return mergeByLineOverlap(currentText, nextText);
@@ -580,6 +583,15 @@ function replaceOnlyStatusWithExpandedSnapshot(current: string, nextSnapshot: st
     return "";
   }
   return trimBlankEdges(nextSnapshot);
+}
+
+function containsOnlyBusyStatusAndSnapshotContent(current: string, nextSnapshot: string) {
+  const currentLines = current.split("\n").filter((line) => line.trim());
+  if (currentLines.length < 2) {
+    return false;
+  }
+  const withoutBusy = currentLines.filter((line) => !isCodexBusyStatusLine(line)).join("\n").trim();
+  return Boolean(withoutBusy) && withoutBusy === nextSnapshot.trim();
 }
 
 function findLastNonBlankLineIndex(lines: string[]) {
