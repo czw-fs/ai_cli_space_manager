@@ -1,4 +1,10 @@
-import { buildCodexPrompt, buildComposerWrites, shouldSendComposerOnEnter, TERMINAL_ENTER } from "../src/codexComposer";
+import {
+  buildCodexInteractiveWrites,
+  buildCodexPrompt,
+  buildComposerWrites,
+  shouldSendComposerOnEnter,
+  TERMINAL_ENTER,
+} from "../src/codexComposer";
 import type { AttachmentFile } from "../src/types";
 
 function assertEqual(actual: unknown, expected: unknown, message: string) {
@@ -35,6 +41,12 @@ assertArrayEqual(
   buildComposerWrites("执行任务", [], true),
   ["\x1b[200~执行任务\x1b[201~", TERMINAL_ENTER],
   "execute mode writes paste and a separate enter",
+);
+
+assertArrayEqual(
+  buildCodexInteractiveWrites("执行任务", []),
+  ["\x1b[200~执行任务\x1b[201~", TERMINAL_ENTER],
+  "codex interactive writes paste then enter",
 );
 
 assertEqual(

@@ -3,6 +3,7 @@ import type { AttachmentFile } from "./types";
 export const BRACKETED_PASTE_START = "\x1b[200~";
 export const BRACKETED_PASTE_END = "\x1b[201~";
 export const TERMINAL_ENTER = "\r";
+export const CODEX_INTERACTIVE_SUBMIT_DELAY_MS = 90;
 
 export type EnterKeyMode = "send" | "newline";
 
@@ -35,6 +36,10 @@ export function buildComposerWrites(text: string, attachments: AttachmentFile[],
     writes.push(TERMINAL_ENTER);
   }
   return writes;
+}
+
+export function buildCodexInteractiveWrites(text: string, attachments: AttachmentFile[]) {
+  return [bracketedPaste(buildCodexPrompt(text, attachments)), TERMINAL_ENTER];
 }
 
 export function shouldSendComposerOnEnter(event: ComposerEnterShortcut, mode: EnterKeyMode) {

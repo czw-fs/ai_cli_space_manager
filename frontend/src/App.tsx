@@ -11,7 +11,13 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { EventsOn, WindowSetDarkTheme, WindowSetLightTheme } from "../wailsjs/runtime/runtime";
 import { api } from "./api";
-import { buildComposerWrites, shouldSendComposerOnEnter } from "./codexComposer";
+import {
+  buildCodexInteractiveWrites,
+  buildCodexPrompt,
+  buildComposerWrites,
+  CODEX_INTERACTIVE_SUBMIT_DELAY_MS,
+  shouldSendComposerOnEnter,
+} from "./codexComposer";
 import {
   availableOpeners,
   pinOpener,
@@ -20,8 +26,10 @@ import {
   visibleOpeners,
 } from "./directoryOpeners";
 import { reorderDirectories } from "./directoryOrder";
+import { MarkdownRenderer } from "./markdownRenderer";
 import { commandTemplateForApplication, nameFromApplicationPath } from "./openerCommand";
 import { shouldCopyTerminalSelection } from "./terminalInput";
+import { terminalOutputHasCodexInputPrompt, terminalOutputToCodexReplyText } from "./terminalMarkdown";
 import type {
   AppState,
   AttachmentFile,
@@ -40,6 +48,7 @@ type TerminalContextMenu = {
   x: number;
   y: number;
 } | null;
+type TerminalView = "terminal" | "codex";
 
 type TerminalHandle = {
   terminal: Terminal;
@@ -53,6 +62,14 @@ type TerminalHandle = {
 type ComposerState = {
   text: string;
   attachments: AttachmentFile[];
+};
+
+type CodexChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  attachments?: AttachmentFile[];
+  streaming?: boolean;
 };
 
 const TERMINAL_HIDE_CURSOR = "\x1b[?25l";
@@ -77,6 +94,8 @@ const clampNumber = (value: number, min: number, max: number) => Math.min(max, M
 const isCanceledFileDialogError = (error: unknown) =>
   String(error).toLowerCase().includes("shellitem is nil");
 
+const wait = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
 function App() {
   const [state, setState] = useState<AppState>(emptyState);
   const [query, setQuery] = useState("");
@@ -92,10 +111,15 @@ function App() {
   const [renamingTerminalId, setRenamingTerminalId] = useState("");
   const [terminalRenameDraft, setTerminalRenameDraft] = useState("");
   const [composerBySession, setComposerBySession] = useState<Record<string, ComposerState>>({});
+  const [codexComposerBySession, setCodexComposerBySession] = useState<Record<string, ComposerState>>({});
+  const [codexMessagesBySession, setCodexMessagesBySession] = useState<Record<string, CodexChatMessage[]>>({});
+  const [terminalView, setTerminalView] = useState<TerminalView>("terminal");
   const stateRef = useRef(state);
   const terminalRenameCanceled = useRef(false);
   const terminalInstances = useRef<Record<string, TerminalHandle>>({});
   const pendingTerminalOutput = useRef<Record<string, string>>({});
+  const activeCodexReplyIdBySession = useRef<Record<string, string>>({});
+  const activeCodexPromptBySession = useRef<Record<string, string>>({});
 
   const applyState = (next: AppState) => {
     stateRef.current = next;
@@ -121,6 +145,30 @@ function App() {
 
   useEffect(() => {
     const offOutput = EventsOn("terminal:output", (event: TerminalOutputEvent) => {
+      const activeReplyId = activeCodexReplyIdBySession.current[event.sessionId];
+      if (activeReplyId) {
+        const replyText = terminalOutputToCodexReplyText(event.data, activeCodexPromptBySession.current[event.sessionId] ?? "");
+        if (replyText) {
+          setCodexMessagesBySession((current) => ({
+            ...current,
+            [event.sessionId]: (current[event.sessionId] ?? []).map((messageItem) =>
+              messageItem.id === activeReplyId
+                ? { ...messageItem, content: `${messageItem.content}${replyText}` }
+                : messageItem,
+            ),
+          }));
+        }
+        if (terminalOutputHasCodexInputPrompt(event.data)) {
+          setCodexMessagesBySession((current) => ({
+            ...current,
+            [event.sessionId]: (current[event.sessionId] ?? []).map((messageItem) =>
+              messageItem.id === activeReplyId ? { ...messageItem, streaming: false } : messageItem,
+            ),
+          }));
+          delete activeCodexReplyIdBySession.current[event.sessionId];
+          delete activeCodexPromptBySession.current[event.sessionId];
+        }
+      }
       const handle = terminalInstances.current[event.sessionId];
       if (handle) {
         writeTerminalOutput(handle, event.data);
@@ -133,6 +181,8 @@ function App() {
       disposeTerminalHandle(terminalInstances.current[session.id]);
       delete terminalInstances.current[session.id];
       delete pendingTerminalOutput.current[session.id];
+      delete activeCodexReplyIdBySession.current[session.id];
+      delete activeCodexPromptBySession.current[session.id];
     });
     return () => {
       offOutput();
@@ -385,6 +435,18 @@ function App() {
         delete next[sessionId];
         return next;
       });
+      setCodexComposerBySession((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+      setCodexMessagesBySession((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+      delete activeCodexReplyIdBySession.current[sessionId];
+      delete activeCodexPromptBySession.current[sessionId];
       disposeTerminalHandle(terminalInstances.current[sessionId]);
       delete terminalInstances.current[sessionId];
       delete pendingTerminalOutput.current[sessionId];
@@ -612,6 +674,27 @@ function App() {
         )}
 
         <main className="main-panel" onMouseDown={closeTerminalContextMenu}>
+          {activeArea === "terminal" && (
+            <section className="terminal-viewbar">
+              <div className="segmented terminal-view-toggle" aria-label="终端视图切换">
+                <button
+                  type="button"
+                  className={terminalView === "terminal" ? "active" : ""}
+                  onClick={() => setTerminalView("terminal")}
+                >
+                  终端
+                </button>
+                <button
+                  type="button"
+                  className={terminalView === "codex" ? "active" : ""}
+                  onClick={() => setTerminalView("codex")}
+                >
+                  Codex
+                </button>
+              </div>
+            </section>
+          )}
+
           {activeArea === "directories" && (
             <>
               <section className="toolbar">
@@ -676,8 +759,6 @@ function App() {
               sessions={terminalSessions}
               activeId={activeTerminalId}
               terminalRegistry={terminalInstances}
-              onSelect={setActiveTerminalId}
-              onClose={closeTerminal}
               onInputError={handleTerminalError}
               pendingOutput={pendingTerminalOutput}
               attachmentRootPath={state.ui.attachmentRootPath}
@@ -689,6 +770,18 @@ function App() {
               onEnterKeyModeChange={setEnterKeyMode}
               onComposerHeightChange={updateComposerHeight}
               onComposerHeightCommit={persistComposerHeight}
+              view={terminalView}
+              codexMessagesBySession={codexMessagesBySession}
+              codexComposerBySession={codexComposerBySession}
+              onCodexMessagesChange={setCodexMessagesBySession}
+              onCodexComposerChange={setCodexComposerBySession}
+              onCodexReplyStart={(sessionId, replyId, prompt) => {
+                activeCodexReplyIdBySession.current[sessionId] = replyId;
+                activeCodexPromptBySession.current[sessionId] = prompt;
+              }}
+              onCodexMessagesClear={(sessionId) =>
+                setCodexMessagesBySession((current) => ({ ...current, [sessionId]: [] }))
+              }
             />
           )}
         </main>
@@ -1017,12 +1110,17 @@ function TerminalPanel({
   onAttachmentRootPathChange,
   onEnterKeyModeChange,
   composerBySession,
-  onSelect,
-  onClose,
   onInputError,
   onComposerChange,
   onComposerHeightChange,
   onComposerHeightCommit,
+  view,
+  codexMessagesBySession,
+  codexComposerBySession,
+  onCodexMessagesChange,
+  onCodexComposerChange,
+  onCodexReplyStart,
+  onCodexMessagesClear,
 }: {
   sessions: TerminalSession[];
   activeId: string;
@@ -1034,17 +1132,24 @@ function TerminalPanel({
   onAttachmentRootPathChange: (value: string) => void;
   onEnterKeyModeChange: (value: AppState["ui"]["enterKeyMode"]) => void;
   composerBySession: Record<string, ComposerState>;
-  onSelect: (sessionId: string) => void;
-  onClose: (sessionId: string) => void;
   onInputError: (error: unknown) => void;
   onComposerChange: (value: SetStateAction<Record<string, ComposerState>>) => void;
   onComposerHeightChange: (height: number) => void;
   onComposerHeightCommit: (height: number) => void;
+  view: TerminalView;
+  codexMessagesBySession: Record<string, CodexChatMessage[]>;
+  codexComposerBySession: Record<string, ComposerState>;
+  onCodexMessagesChange: (value: SetStateAction<Record<string, CodexChatMessage[]>>) => void;
+  onCodexComposerChange: (value: SetStateAction<Record<string, ComposerState>>) => void;
+  onCodexReplyStart: (sessionId: string, replyId: string, prompt: string) => void;
+  onCodexMessagesClear: (sessionId: string) => void;
 }) {
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const onInputErrorRef = useRef(onInputError);
   const activeSession = sessions.find((session) => session.id === activeId) ?? sessions[sessions.length - 1];
   const composer = activeSession ? composerBySession[activeSession.id] ?? { text: "", attachments: [] } : { text: "", attachments: [] };
+  const codexComposer = activeSession ? codexComposerBySession[activeSession.id] ?? { text: "", attachments: [] } : { text: "", attachments: [] };
+  const codexMessages = activeSession ? codexMessagesBySession[activeSession.id] ?? [] : [];
   const [attachmentPathDraft, setAttachmentPathDraft] = useState(attachmentRootPath);
   const [attachmentPathEditing, setAttachmentPathEditing] = useState(false);
 
@@ -1059,7 +1164,7 @@ function TerminalPanel({
 
   useEffect(() => {
     const host = terminalHostRef.current;
-    if (!host || !activeSession) {
+    if (!host || !activeSession || view !== "terminal") {
       return;
     }
 
@@ -1142,20 +1247,20 @@ function TerminalPanel({
       window.cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
     };
-  }, [activeSession?.id, pendingOutput, terminalRegistry]);
+  }, [activeSession?.id, pendingOutput, terminalRegistry, view]);
 
   useEffect(() => {
-    if (activeSession && terminalRegistry.current[activeSession.id]) {
+    if (view === "terminal" && activeSession && terminalRegistry.current[activeSession.id]) {
       window.setTimeout(() => {
         const handle = terminalRegistry.current[activeSession.id];
         showTerminalCursor(handle);
         handle?.terminal.focus();
       }, 0);
     }
-  }, [activeSession?.id, terminalRegistry]);
+  }, [activeSession?.id, terminalRegistry, view]);
 
   const focusActiveTerminal = () => {
-    if (activeSession) {
+    if (view === "terminal" && activeSession) {
       const handle = terminalRegistry.current[activeSession.id];
       showTerminalCursor(handle);
       handle?.terminal.focus();
@@ -1166,8 +1271,32 @@ function TerminalPanel({
     onComposerChange((current) => ({ ...current, [sessionId]: next }));
   };
 
+  const updateCodexComposer = (sessionId: string, next: ComposerState) => {
+    onCodexComposerChange((current) => ({ ...current, [sessionId]: next }));
+  };
+
+  const appendCodexMessages = (sessionId: string, messages: CodexChatMessage[]) => {
+    onCodexMessagesChange((current) => ({
+      ...current,
+      [sessionId]: [...(current[sessionId] ?? []), ...messages],
+    }));
+  };
+
   const addAttachment = (sessionId: string, attachment: AttachmentFile) => {
     onComposerChange((current) => {
+      const currentComposer = current[sessionId] ?? { text: "", attachments: [] };
+      return {
+        ...current,
+        [sessionId]: {
+          ...currentComposer,
+          attachments: [...currentComposer.attachments, attachment],
+        },
+      };
+    });
+  };
+
+  const addCodexAttachment = (sessionId: string, attachment: AttachmentFile) => {
+    onCodexComposerChange((current) => {
       const currentComposer = current[sessionId] ?? { text: "", attachments: [] };
       return {
         ...current,
@@ -1192,7 +1321,24 @@ function TerminalPanel({
     });
   };
 
-  const pasteAttachment = async (sessionId: string, file: File) => {
+  const removeCodexAttachment = (sessionId: string, attachmentId: string) => {
+    onCodexComposerChange((current) => {
+      const currentComposer = current[sessionId] ?? { text: "", attachments: [] };
+      return {
+        ...current,
+        [sessionId]: {
+          ...currentComposer,
+          attachments: currentComposer.attachments.filter((item) => item.id !== attachmentId),
+        },
+      };
+    });
+  };
+
+  const pasteAttachment = async (
+    sessionId: string,
+    file: File,
+    addSavedAttachment: (sessionId: string, attachment: AttachmentFile) => void,
+  ) => {
     if (!file.type.startsWith("image/")) {
       onInputError("只能粘贴图片附件");
       return;
@@ -1205,7 +1351,7 @@ function TerminalPanel({
       dataBase64,
       attachmentRootPath,
     });
-    addAttachment(sessionId, attachment);
+    addSavedAttachment(sessionId, attachment);
   };
 
   const handleComposerPaste = async (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
@@ -1224,7 +1370,30 @@ function TerminalPanel({
     event.preventDefault();
     try {
       for (const image of images) {
-        await pasteAttachment(activeSession.id, image);
+        await pasteAttachment(activeSession.id, image, addAttachment);
+      }
+    } catch (error) {
+      onInputError(error);
+    }
+  };
+
+  const handleCodexComposerPaste = async (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    if (!activeSession) {
+      return;
+    }
+    const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
+    const imageItems = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+    const images = files.length > 0 ? files : imageItems;
+    if (images.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    try {
+      for (const image of images) {
+        await pasteAttachment(activeSession.id, image, addCodexAttachment);
       }
     } catch (error) {
       onInputError(error);
@@ -1241,6 +1410,46 @@ function TerminalPanel({
       }
       updateComposer(activeSession.id, { text: "", attachments: [] });
     } catch (error) {
+      onInputError(error);
+    }
+  };
+
+  const sendCodexComposer = async () => {
+    if (!activeSession || (!codexComposer.text.trim() && codexComposer.attachments.length === 0)) {
+      return;
+    }
+    const userMessage: CodexChatMessage = {
+      id: makeId("codex-user"),
+      role: "user",
+      content: codexComposer.text.trim(),
+      attachments: codexComposer.attachments,
+    };
+    const assistantMessage: CodexChatMessage = {
+      id: makeId("codex-assistant"),
+      role: "assistant",
+      content: "",
+      streaming: true,
+    };
+    try {
+      appendCodexMessages(activeSession.id, [userMessage, assistantMessage]);
+      const prompt = buildCodexPrompt(codexComposer.text, codexComposer.attachments);
+      const writes = buildCodexInteractiveWrites(codexComposer.text, codexComposer.attachments);
+      await api.writeTerminalInput(activeSession.id, writes[0]);
+      await wait(CODEX_INTERACTIVE_SUBMIT_DELAY_MS);
+      onCodexReplyStart(activeSession.id, assistantMessage.id, prompt);
+      for (const input of writes.slice(1)) {
+        await api.writeTerminalInput(activeSession.id, input);
+      }
+      updateCodexComposer(activeSession.id, { text: "", attachments: [] });
+    } catch (error) {
+      onCodexMessagesChange((current) => ({
+        ...current,
+        [activeSession.id]: (current[activeSession.id] ?? []).map((messageItem) =>
+          messageItem.id === assistantMessage.id
+            ? { ...messageItem, content: `发送失败：${String(error)}`, streaming: false }
+            : messageItem,
+        ),
+      }));
       onInputError(error);
     }
   };
@@ -1285,107 +1494,253 @@ function TerminalPanel({
   );
 
   return (
-    <div className="terminal-panel" onMouseDown={focusActiveTerminal}>
-      {sessions.length === 0 ? (
-        <div className="terminal-empty">点击工作区行的“内嵌终端”创建会话</div>
-      ) : (
-        <div ref={terminalHostRef} className="terminal-host" />
-      )}
-      <div className="codex-composer" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="composer-settings">
-          <label>
-            <span>附件目录</span>
-            <input
-              value={attachmentPathDraft}
-              disabled={!attachmentPathEditing}
-              placeholder="codex_attachments"
-              onChange={(event) => setAttachmentPathDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  commitAttachmentRootPath();
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  cancelAttachmentRootPathEdit();
-                }
-              }}
-            />
-          </label>
-          <div className="attachment-path-actions">
-            {attachmentPathEditing ? (
-              <>
-                <button type="button" onClick={commitAttachmentRootPath}>保存</button>
-                <button type="button" onClick={cancelAttachmentRootPathEdit}>取消</button>
-              </>
-            ) : (
-              <button type="button" onClick={() => setAttachmentPathEditing(true)}>编辑</button>
-            )}
-          </div>
-          <div className="enter-mode-toggle" aria-label="回车行为">
-            <button
-              type="button"
-              className={enterKeyMode === "send" ? "active" : ""}
-              onClick={() => onEnterKeyModeChange("send")}
-            >
-              回车发送
-            </button>
-            <button
-              type="button"
-              className={enterKeyMode === "newline" ? "active" : ""}
-              onClick={() => onEnterKeyModeChange("newline")}
-            >
-              回车换行
-            </button>
-          </div>
-        </div>
-        <div className="attachment-strip">
-          {composer.attachments.length === 0 ? (
-            <span className="attachment-hint">在这里粘贴截图或图片文件</span>
+    <div className={view === "codex" ? "terminal-panel codex-view-active" : "terminal-panel"} onMouseDown={focusActiveTerminal}>
+      {view === "terminal" ? (
+        <>
+          {sessions.length === 0 ? (
+            <div className="terminal-empty">点击工作区行的“内嵌终端”创建会话</div>
           ) : (
-            composer.attachments.map((attachment) => (
-              <div className="attachment-chip" key={attachment.id} title={attachment.path}>
+            <div ref={terminalHostRef} className="terminal-host" />
+          )}
+          <div className="codex-composer" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="composer-settings">
+              <label>
+                <span>附件目录</span>
+                <input
+                  value={attachmentPathDraft}
+                  disabled={!attachmentPathEditing}
+                  placeholder="codex_attachments"
+                  onChange={(event) => setAttachmentPathDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitAttachmentRootPath();
+                    } else if (event.key === "Escape") {
+                      event.preventDefault();
+                      cancelAttachmentRootPathEdit();
+                    }
+                  }}
+                />
+              </label>
+              <div className="attachment-path-actions">
+                {attachmentPathEditing ? (
+                  <>
+                    <button type="button" onClick={commitAttachmentRootPath}>保存</button>
+                    <button type="button" onClick={cancelAttachmentRootPathEdit}>取消</button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setAttachmentPathEditing(true)}>编辑</button>
+                )}
+              </div>
+              <div className="enter-mode-toggle" aria-label="回车行为">
+                <button
+                  type="button"
+                  className={enterKeyMode === "send" ? "active" : ""}
+                  onClick={() => onEnterKeyModeChange("send")}
+                >
+                  回车发送
+                </button>
+                <button
+                  type="button"
+                  className={enterKeyMode === "newline" ? "active" : ""}
+                  onClick={() => onEnterKeyModeChange("newline")}
+                >
+                  回车换行
+                </button>
+              </div>
+            </div>
+            <div className="attachment-strip">
+              {composer.attachments.length === 0 ? (
+                <span className="attachment-hint">在这里粘贴截图或图片文件</span>
+              ) : (
+                composer.attachments.map((attachment) => (
+                  <div className="attachment-chip" key={attachment.id} title={attachment.path}>
+                    <button type="button" onClick={() => api.openAttachment(attachment.path).catch(onInputError)}>打开</button>
+                    <span>{attachment.name}</span>
+                    <button type="button" onClick={() => activeSession && removeAttachment(activeSession.id, attachment.id)}>删除</button>
+                  </div>
+                ))
+              )}
+            </div>
+            <button
+              className="composer-resize-handle"
+              type="button"
+              aria-label="调整输入框高度"
+              title="拖动调整输入框高度"
+              onMouseDown={handleComposerResizeMouseDown}
+            />
+            <div className="composer-row">
+              <textarea
+                style={{ height: `${resolvedComposerHeight}px` }}
+                value={composer.text}
+                disabled={!activeSession?.running}
+                placeholder="输入要发给 codex 的内容，支持 Ctrl+V 粘贴截图"
+                onPaste={handleComposerPaste}
+                onChange={(event) => activeSession && updateComposer(activeSession.id, { ...composer, text: event.target.value })}
+                onKeyDown={(event) => {
+                  if (shouldSendComposerOnEnter(event, enterKeyMode)) {
+                    event.preventDefault();
+                    sendComposer();
+                  }
+                }}
+              />
+              <div className="composer-actions">
+                <button
+                  type="button"
+                  className="composer-send"
+                  disabled={!activeSession?.running}
+                  onClick={sendComposer}
+                >
+                  发送并执行
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <CodexPanel
+          activeSession={activeSession}
+          messages={codexMessages}
+          composer={codexComposer}
+          enterKeyMode={enterKeyMode}
+          onPaste={handleCodexComposerPaste}
+          onComposerChange={updateCodexComposer}
+          onRemoveAttachment={removeCodexAttachment}
+          onSend={sendCodexComposer}
+          onClearMessages={() => activeSession && onCodexMessagesClear(activeSession.id)}
+          onInputError={onInputError}
+        />
+      )}
+      {view === "terminal" && activeSession && <div className="terminal-path">{activeSession.directory}</div>}
+    </div>
+  );
+}
+
+function CodexPanel({
+  activeSession,
+  messages,
+  composer,
+  enterKeyMode,
+  onPaste,
+  onComposerChange,
+  onRemoveAttachment,
+  onSend,
+  onClearMessages,
+  onInputError,
+}: {
+  activeSession: TerminalSession | undefined;
+  messages: CodexChatMessage[];
+  composer: ComposerState;
+  enterKeyMode: AppState["ui"]["enterKeyMode"];
+  onPaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void;
+  onComposerChange: (sessionId: string, next: ComposerState) => void;
+  onRemoveAttachment: (sessionId: string, attachmentId: string) => void;
+  onSend: () => void;
+  onClearMessages: () => void;
+  onInputError: (error: unknown) => void;
+}) {
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const element = messageListRef.current;
+    if (!element) {
+      return;
+    }
+    element.scrollTop = element.scrollHeight;
+  }, [messages]);
+
+  if (!activeSession) {
+    return <div className="codex-chat-empty">点击工作区行的“内嵌终端”创建会话</div>;
+  }
+
+  return (
+    <div className="codex-chat" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="codex-chat-messages" ref={messageListRef}>
+        {messages.length === 0 ? (
+          <div className="codex-chat-placeholder">
+            <div className="codex-placeholder-mark">CX</div>
+            <div>
+              <strong>Codex 控制台</strong>
+              <span>发送消息后，回复会在这里展开</span>
+            </div>
+          </div>
+        ) : (
+          messages.map((messageItem) => (
+            <article
+              className={messageItem.role === "user" ? "codex-message user" : "codex-message assistant"}
+              key={messageItem.id}
+            >
+              <div className="codex-message-bubble">
+                {messageItem.content ? (
+                  messageItem.role === "assistant" ? (
+                    <MarkdownRenderer content={messageItem.content} />
+                  ) : (
+                    <p>{messageItem.content}</p>
+                  )
+                ) : (
+                  <span className="codex-message-pending">等待回复...</span>
+                )}
+                {messageItem.attachments && messageItem.attachments.length > 0 && (
+                  <div className="codex-message-attachments">
+                    {messageItem.attachments.map((attachment) => (
+                      <button
+                        type="button"
+                        key={attachment.id}
+                        title={attachment.path}
+                        onClick={() => api.openAttachment(attachment.path).catch(onInputError)}
+                      >
+                        {attachment.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {messageItem.streaming && <span className="codex-stream-cursor" />}
+              </div>
+            </article>
+          ))
+        )}
+      </div>
+      <div className="codex-chat-input">
+        {composer.attachments.length > 0 && (
+          <div className="codex-chat-attachments">
+            {composer.attachments.map((attachment) => (
+              <div className="codex-chat-attachment" key={attachment.id} title={attachment.path}>
                 <button type="button" onClick={() => api.openAttachment(attachment.path).catch(onInputError)}>打开</button>
                 <span>{attachment.name}</span>
-                <button type="button" onClick={() => activeSession && removeAttachment(activeSession.id, attachment.id)}>删除</button>
+                <button type="button" onClick={() => onRemoveAttachment(activeSession.id, attachment.id)}>删除</button>
               </div>
-            ))
-          )}
-        </div>
-        <button
-          className="composer-resize-handle"
-          type="button"
-          aria-label="调整输入框高度"
-          title="拖动调整输入框高度"
-          onMouseDown={handleComposerResizeMouseDown}
-        />
-        <div className="composer-row">
+            ))}
+          </div>
+        )}
+        <div className="codex-chat-input-row">
           <textarea
-            style={{ height: `${resolvedComposerHeight}px` }}
             value={composer.text}
-            disabled={!activeSession?.running}
-            placeholder="输入要发给 codex 的内容，支持 Ctrl+V 粘贴截图"
-            onPaste={handleComposerPaste}
-            onChange={(event) => activeSession && updateComposer(activeSession.id, { ...composer, text: event.target.value })}
+            disabled={!activeSession.running}
+            placeholder="发送消息给 Codex"
+            onPaste={onPaste}
+            onChange={(event) => onComposerChange(activeSession.id, { ...composer, text: event.target.value })}
             onKeyDown={(event) => {
               if (shouldSendComposerOnEnter(event, enterKeyMode)) {
                 event.preventDefault();
-                sendComposer();
+                onSend();
               }
             }}
           />
-          <div className="composer-actions">
-            <button
-              type="button"
-              className="composer-send"
-              disabled={!activeSession?.running}
-              onClick={sendComposer}
-            >
-              发送并执行
-            </button>
-          </div>
+          <button
+            type="button"
+            className="codex-chat-send"
+            disabled={!activeSession.running}
+            onClick={onSend}
+            title="发送"
+          >
+            发送
+          </button>
+        </div>
+        <div className="codex-chat-actions">
+          <button type="button" disabled={messages.length === 0} onClick={onClearMessages}>清空对话</button>
+          <span>{enterKeyMode === "send" ? "Enter 发送，Shift+Enter 换行" : "Ctrl+Enter 发送，Enter 换行"}</span>
         </div>
       </div>
-      {activeSession && <div className="terminal-path">{activeSession.directory}</div>}
     </div>
   );
 }

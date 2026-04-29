@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node --loader ./test/ts-loader.mjs test/codexComposer.test.ts && node --loader ./test/ts-loader.mjs test/directoryOpeners.test.ts && node --loader ./test/ts-loader.mjs test/directoryOrder.test.ts && node --loader ./test/ts-loader.mjs test/openerCommand.test.ts && node --loader ./test/ts-loader.mjs test/terminalInput.test.ts",
+    "test": "node --loader ./test/ts-loader.mjs test/codexComposer.test.ts && node --loader ./test/ts-loader.mjs test/directoryOpeners.test.ts && node --loader ./test/ts-loader.mjs test/directoryOrder.test.ts && node --loader ./test/ts-loader.mjs test/openerCommand.test.ts && node --loader ./test/ts-loader.mjs test/terminalInput.test.ts && node --loader ./test/ts-loader.mjs test/terminalMarkdown.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
