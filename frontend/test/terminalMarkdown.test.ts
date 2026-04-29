@@ -2,8 +2,10 @@ import {
   appendTerminalMarkdownOutput,
   stripTerminalControlSequences,
   terminalOutputHasCodexInputPrompt,
+  terminalOutputHasCodexTurnEndPrompt,
   terminalOutputToCodexLiveText,
   terminalOutputToCodexReplyText,
+  terminalOutputToCodexTurnLiveText,
   terminalOutputToMarkdownText,
 } from "../src/terminalMarkdown";
 
@@ -93,6 +95,78 @@ assertEqual(
   terminalOutputToCodexLiveText("• Working (2s · esc to interrupt)\n\n正在检查项目结构\n\n> 修复界面", "修复界面"),
   "• Working (2s · esc to interrupt)\n\n正在检查项目结构",
   "keeps codex live status output but hides echoed active prompt",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
+    "上一轮回答\n\n> 当前问题\n• Working (1s · esc to interrupt)\n\n本轮回答",
+    "当前问题",
+  ),
+  "• Working (1s · esc to interrupt)\n\n本轮回答",
+  "maps only the current codex turn after the active prompt",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
+    [
+      "旧回答",
+      "",
+      "> 查找问题",
+      "• Searching files",
+      "• Running rg",
+      "找到 terminalMarkdown.ts",
+      "",
+      "最终结论",
+    ].join("\n"),
+    "查找问题",
+  ),
+  "• Searching files\n• Running rg\n找到 terminalMarkdown.ts\n\n最终结论",
+  "keeps codex thinking and tool status in the current turn",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
+    "> 修复界面\n• Working (2s · esc to interrupt)\n\n正在处理\n\n> Implement {feature}",
+    "修复界面",
+  ),
+  "• Working (2s · esc to interrupt)\n\n正在处理",
+  "hides the next idle input placeholder after current turn output",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
+    "> 第一行\n第二行\n• Thinking\n回答",
+    "第一行\n第二行",
+  ),
+  "• Thinking\n回答",
+  "supports multi-line active prompts as current turn anchors",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
+    "> 修复问题\n旧回答\n\n> 修复问题\n新回答",
+    "修复问题",
+  ),
+  "新回答",
+  "uses the last matching active prompt as the current turn anchor",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
+    "› 当前问题\n• Thinking\n回答",
+    "当前问题",
+  ),
+  "• Thinking\n回答",
+  "supports the codex prompt glyph as a current turn anchor",
+);
+
+assertEqual(
+  terminalOutputHasCodexTurnEndPrompt(
+    "> 当前问题\n• Working\n回答\n\n> Implement {feature}",
+    "当前问题",
+  ),
+  true,
+  "detects current turn completion from the post-answer input placeholder",
 );
 
 assertEqual(

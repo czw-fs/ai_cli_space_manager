@@ -9,4 +9,5 @@
 6. 每次新增功能前都从主分支切新功能分支开发；功能完成后自动运行测试、自动 build、自动按时间戳打包 exe；验证通过后在该功能分支自动 commit 并 push。只有当用户明确回复“满意、没有问题”后，才把功能分支合并回 main/master 分支。
 7. Codex 聊天视图发送时采用“先 paste，短延迟后 Enter”的交互式提交方式，避免 Codex CLI TUI 未接收完输入就吞掉提交；聊天 UI 当前为深色工业工作台风格，消息按左右列对齐，不再漂浮到画布中央。
 8. Codex 聊天输出不要逐 chunk 直接追加到气泡；当前实现按会话维护原始终端输出缓冲，重新解析整段缓冲后替换 assistant 消息内容，用 `terminalOutputToCodexReplyText` 处理 carriage return、清行、光标移动和 Codex TUI 的 Working 状态/碎片，避免把终端重绘过程展示给用户。
-9. 最新 Codex 视图改为实时映射 Codex CLI 当前可见输出：App 使用 `terminalOutputToCodexLiveText` 把同一终端会话的屏幕文本投影到 assistant 气泡，保留换行、缩进和 Codex 状态行，只隐藏交互输入框占位（如 `> Implement {feature}`）、当前用户输入回显、路径/prompt 等终端外壳；assistant 空内容不渲染，且不再显示自定义流式光标。
+9. Codex 视图采用终端屏幕文本投影方式，保留换行、缩进和 Codex 状态行，只隐藏交互输入框占位（如 `> Implement {feature}`）、当前用户输入回显、路径/prompt 等终端外壳；assistant 空内容不渲染，且不再显示自定义流式光标。
+10. Codex 视图的实时映射必须以“当前用户本次输入”为边界：App 当前使用 `terminalOutputToCodexTurnLiveText` 和 `terminalOutputHasCodexTurnEndPrompt`，从最后一次 activePrompt 输入锚点之后开始投影，并在下一次输入框/占位 prompt 前截断；这样保留本轮思考、搜索、工具状态和最终回答，但不把历史回答或下一次输入框混入当前 assistant 气泡。

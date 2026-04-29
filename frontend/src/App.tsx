@@ -28,7 +28,7 @@ import {
 import { reorderDirectories } from "./directoryOrder";
 import { commandTemplateForApplication, nameFromApplicationPath } from "./openerCommand";
 import { shouldCopyTerminalSelection } from "./terminalInput";
-import { terminalOutputHasCodexInputPrompt, terminalOutputToCodexLiveText } from "./terminalMarkdown";
+import { terminalOutputHasCodexTurnEndPrompt, terminalOutputToCodexTurnLiveText } from "./terminalMarkdown";
 import type {
   AppState,
   AttachmentFile,
@@ -153,7 +153,7 @@ function App() {
           rawOutput.length > CODEX_REPLY_RAW_BUFFER_LIMIT
             ? rawOutput.slice(rawOutput.length - CODEX_REPLY_RAW_BUFFER_LIMIT)
             : rawOutput;
-        const replyText = terminalOutputToCodexLiveText(
+        const replyText = terminalOutputToCodexTurnLiveText(
           activeCodexReplyRawBySession.current[event.sessionId],
           activeCodexPromptBySession.current[event.sessionId] ?? "",
         );
@@ -169,7 +169,12 @@ function App() {
             ),
           };
         });
-        if (terminalOutputHasCodexInputPrompt(event.data)) {
+        if (
+          terminalOutputHasCodexTurnEndPrompt(
+            activeCodexReplyRawBySession.current[event.sessionId],
+            activeCodexPromptBySession.current[event.sessionId] ?? "",
+          )
+        ) {
           setCodexMessagesBySession((current) => ({
             ...current,
             [event.sessionId]: (current[event.sessionId] ?? []).map((messageItem) =>

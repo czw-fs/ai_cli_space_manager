@@ -55,10 +55,41 @@ export function terminalOutputToCodexLiveText(value: string, activePrompt = "") 
   );
 }
 
+export function terminalOutputToCodexTurnLiveText(value: string, activePrompt = "") {
+  const promptLines = makePromptLineSet(activePrompt);
+  const screenLines = terminalOutputToScreenText(value).split("\n");
+  const currentTurnLines = sliceCodexCurrentTurnLines(screenLines, activePrompt);
+  const boundedLines = truncateAtNextCodexInputPrompt(currentTurnLines, promptLines);
+  return trimBlankEdges(
+    boundedLines
+      .filter((line) => !isCodexLiveChromeLine(line, promptLines))
+      .join("\n"),
+  );
+}
+
 export function terminalOutputHasCodexInputPrompt(value: string) {
   return terminalOutputToMarkdownText(value)
     .split("\n")
     .some((line) => isCodexIdleInputPromptLine(line.trim()));
+}
+
+export function terminalOutputHasCodexTurnEndPrompt(value: string, activePrompt = "") {
+  const promptLines = makePromptLineSet(activePrompt);
+  const currentTurnLines = sliceCodexCurrentTurnLines(terminalOutputToScreenText(value).split("\n"), activePrompt);
+  let hasMappedContent = false;
+  for (const line of currentTurnLines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (hasMappedContent && isCodexPostTurnInputPromptLine(trimmed, promptLines)) {
+      return true;
+    }
+    if (!isCodexLiveChromeLine(line, promptLines)) {
+      hasMappedContent = true;
+    }
+  }
+  return false;
 }
 
 function makePromptLineSet(activePrompt: string) {
@@ -187,6 +218,74 @@ function terminalOutputToScreenText(value: string) {
     .map((line) => line.join("").replace(/[ \t]+$/g, ""))
     .join("\n")
     .replace(/\n+$/g, "");
+}
+
+function sliceCodexCurrentTurnLines(lines: string[], activePrompt: string) {
+  const anchorEndIndex = findCurrentPromptAnchorEndIndex(lines, activePrompt);
+  if (anchorEndIndex < 0) {
+    return lines;
+  }
+  return lines.slice(anchorEndIndex + 1);
+}
+
+function findCurrentPromptAnchorEndIndex(lines: string[], activePrompt: string) {
+  const target = normalizePromptCompact(activePrompt);
+  if (!target) {
+    return -1;
+  }
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const trimmed = lines[index].trim();
+    if (!/^[>›]\s*/.test(trimmed)) {
+      continue;
+    }
+    const endIndex = findPromptAnchorEndFrom(lines, index, target);
+    if (endIndex >= 0) {
+      return endIndex;
+    }
+  }
+  return -1;
+}
+
+function findPromptAnchorEndFrom(lines: string[], startIndex: number, target: string) {
+  let candidate = "";
+  const maxLines = Math.min(lines.length, startIndex + 8);
+  for (let index = startIndex; index < maxLines; index += 1) {
+    const rawLine = lines[index].trim();
+    const text = index === startIndex ? rawLine.replace(/^[>›]\s*/, "") : rawLine;
+    if (!text) {
+      break;
+    }
+    if (index > startIndex && /^[>›]\s*/.test(rawLine)) {
+      break;
+    }
+    candidate += text;
+    const normalizedCandidate = normalizePromptCompact(candidate);
+    if (normalizedCandidate === target) {
+      return index;
+    }
+    if (!target.startsWith(normalizedCandidate)) {
+      break;
+    }
+  }
+  return -1;
+}
+
+function truncateAtNextCodexInputPrompt(lines: string[], activePromptLines: Set<string>) {
+  let hasMappedContent = false;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (hasMappedContent && isCodexPostTurnInputPromptLine(trimmed, activePromptLines)) {
+      return lines.slice(0, index);
+    }
+    if (!isCodexLiveChromeLine(line, activePromptLines)) {
+      hasMappedContent = true;
+    }
+  }
+  return lines;
 }
 
 function consumeEscapeSequence(
@@ -360,6 +459,16 @@ function isCodexInputPromptLine(trimmed: string, activePromptLines: Set<string>)
   return false;
 }
 
+function isCodexPostTurnInputPromptLine(trimmed: string, activePromptLines: Set<string>) {
+  if (isCodexInputPromptLine(trimmed, activePromptLines)) {
+    return true;
+  }
+  if (/^[>›]\s+\S/.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
 function isCodexIdleInputPromptLine(trimmed: string) {
   if (/^[>›]\s*$/.test(trimmed)) {
     return true;
@@ -438,4 +547,8 @@ function trimBlankEdges(value: string) {
     lines.pop();
   }
   return lines.join("\n");
+}
+
+function normalizePromptCompact(value: string) {
+  return value.replace(/\s+/g, "");
 }
