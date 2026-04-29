@@ -28,7 +28,11 @@ import {
 import { reorderDirectories } from "./directoryOrder";
 import { commandTemplateForApplication, nameFromApplicationPath } from "./openerCommand";
 import { shouldCopyTerminalSelection } from "./terminalInput";
-import { terminalOutputHasCodexTurnEndPrompt, terminalOutputToCodexTurnLiveText } from "./terminalMarkdown";
+import {
+  mergeCodexTurnLiveText,
+  terminalOutputHasCodexTurnEndPrompt,
+  terminalOutputToCodexTurnLiveText,
+} from "./terminalMarkdown";
 import type {
   AppState,
   AttachmentFile,
@@ -165,7 +169,9 @@ function App() {
           return {
             ...current,
             [event.sessionId]: messages.map((messageItem) =>
-              messageItem.id === activeReplyId ? { ...messageItem, content: replyText } : messageItem,
+              messageItem.id === activeReplyId
+                ? { ...messageItem, content: mergeCodexTurnLiveText(messageItem.content, replyText) }
+                : messageItem,
             ),
           };
         });

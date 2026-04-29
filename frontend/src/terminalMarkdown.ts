@@ -67,6 +67,32 @@ export function terminalOutputToCodexTurnLiveText(value: string, activePrompt = 
   );
 }
 
+export function mergeCodexTurnLiveText(current: string, nextSnapshot: string) {
+  const currentText = trimBlankEdges(current);
+  const nextText = trimBlankEdges(nextSnapshot);
+  if (!nextText) {
+    return currentText;
+  }
+  if (!currentText) {
+    return nextText;
+  }
+  const currentStatusUpdated = replaceTrailingStatusLine(currentText, nextText);
+  if (currentStatusUpdated) {
+    return currentStatusUpdated;
+  }
+  const nextContainsCurrentAt = nextText.indexOf(currentText);
+  if (nextContainsCurrentAt === 0) {
+    return nextText;
+  }
+  if (nextContainsCurrentAt > 0) {
+    return nextText.slice(nextContainsCurrentAt);
+  }
+  if (currentText.includes(nextText)) {
+    return currentText;
+  }
+  return mergeByLineOverlap(currentText, nextText);
+}
+
 export function terminalOutputHasCodexInputPrompt(value: string) {
   return terminalOutputToMarkdownText(value)
     .split("\n")
@@ -77,16 +103,18 @@ export function terminalOutputHasCodexTurnEndPrompt(value: string, activePrompt 
   const promptLines = makePromptLineSet(activePrompt);
   const currentTurnLines = sliceCodexCurrentTurnLines(terminalOutputToScreenText(value).split("\n"), activePrompt);
   let hasMappedContent = false;
+  let lastMappedLineWasBusyStatus = false;
   for (const line of currentTurnLines) {
     const trimmed = line.trim();
     if (!trimmed) {
       continue;
     }
     if (hasMappedContent && isCodexPostTurnInputPromptLine(trimmed, promptLines)) {
-      return true;
+      return !lastMappedLineWasBusyStatus;
     }
     if (!isCodexLiveChromeLine(line, promptLines)) {
       hasMappedContent = true;
+      lastMappedLineWasBusyStatus = isCodexBusyStatusLine(line);
     }
   }
   return false;
@@ -497,6 +525,55 @@ function isCodexStatusLine(line: string) {
     return true;
   }
   return false;
+}
+
+function isCodexBusyStatusLine(line: string) {
+  const trimmed = line.trim();
+  return /^[•·*]?\s*(?:working|thinking|running|reading|writing|searching|applying|planning)\b/i.test(trimmed);
+}
+
+function statusLineKind(line: string) {
+  const match = line.trim().match(/^[•·*]?\s*(working|thinking|running|reading|writing|searching|applying|planning)\b/i);
+  return match ? match[1].toLowerCase() : "";
+}
+
+function replaceTrailingStatusLine(current: string, nextSnapshot: string) {
+  const currentLines = current.split("\n");
+  const nextLines = nextSnapshot.split("\n").filter((line) => line.trim());
+  if (currentLines.length === 0 || nextLines.length === 0) {
+    return "";
+  }
+  const currentLastIndex = findLastNonBlankLineIndex(currentLines);
+  const nextStatusLine = nextLines.find((line) => isCodexBusyStatusLine(line));
+  if (currentLastIndex < 0 || !nextStatusLine || !isCodexBusyStatusLine(currentLines[currentLastIndex])) {
+    return "";
+  }
+  if (statusLineKind(currentLines[currentLastIndex]) !== statusLineKind(nextStatusLine)) {
+    return "";
+  }
+  currentLines[currentLastIndex] = nextStatusLine;
+  return trimBlankEdges(currentLines.join("\n"));
+}
+
+function findLastNonBlankLineIndex(lines: string[]) {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (lines[index].trim()) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function mergeByLineOverlap(current: string, nextSnapshot: string) {
+  const currentLines = current.split("\n");
+  const nextLines = nextSnapshot.split("\n");
+  const maxOverlap = Math.min(currentLines.length, nextLines.length);
+  for (let size = maxOverlap; size > 0; size -= 1) {
+    if (currentLines.slice(currentLines.length - size).join("\n") === nextLines.slice(0, size).join("\n")) {
+      return trimBlankEdges([...currentLines, ...nextLines.slice(size)].join("\n"));
+    }
+  }
+  return trimBlankEdges(`${current}\n${nextSnapshot}`);
 }
 
 function isCodexStatusFragment(line: string) {

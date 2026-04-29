@@ -1,5 +1,6 @@
 import {
   appendTerminalMarkdownOutput,
+  mergeCodexTurnLiveText,
   stripTerminalControlSequences,
   terminalOutputHasCodexInputPrompt,
   terminalOutputHasCodexTurnEndPrompt,
@@ -167,6 +168,39 @@ assertEqual(
   ),
   true,
   "detects current turn completion from the post-answer input placeholder",
+);
+
+assertEqual(
+  terminalOutputHasCodexTurnEndPrompt(
+    "> 当前问题\n• Working (1s · esc to interrupt)\n\n> Implement {feature}",
+    "当前问题",
+  ),
+  false,
+  "does not finish current turn while codex is still showing a busy status",
+);
+
+assertEqual(
+  mergeCodexTurnLiveText("• Working (0s · esc to interrupt)", "• Working (1s · esc to interrupt)"),
+  "• Working (1s · esc to interrupt)",
+  "updates the live working timer in place",
+);
+
+assertEqual(
+  mergeCodexTurnLiveText(
+    "• Working (1s · esc to interrupt)",
+    "• Thinking\n\n我会先检查项目结构。",
+  ),
+  "• Working (1s · esc to interrupt)\n• Thinking\n\n我会先检查项目结构。",
+  "appends later codex thinking output after the live status",
+);
+
+assertEqual(
+  mergeCodexTurnLiveText(
+    "• Working (1s · esc to interrupt)\n• Thinking\n\n我会先检查项目结构。",
+    "我会先检查项目结构。\n\n最终回答",
+  ),
+  "• Working (1s · esc to interrupt)\n• Thinking\n\n我会先检查项目结构。\n\n最终回答",
+  "merges overlapping final answer snapshots without duplicating text",
 );
 
 assertEqual(
