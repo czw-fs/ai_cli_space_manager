@@ -269,65 +269,6 @@ async function run() {
     if (/Working/.test(finalText)) {
       throw new Error(`Expected stale Working status to be replaced, got: ${finalText}`);
     }
-
-    await page.locator(".codex-chat-input textarea").fill("介绍这个仓库");
-    await page.getByRole("button", { name: "发送" }).click();
-    await page.waitForFunction(() => window.__codexE2E?.writes?.length >= 4);
-    await page.evaluate(() => {
-      window.__codexE2E.emitTerminal(
-        `\x1b[2J\x1b[H${[
-          "PS C:\\dev\\testproject\\aidefaultws> codex",
-          "OpenAI Codex (v0.125.0)",
-          "",
-          "> 介绍这个仓库",
-          "",
-          "◦ Searching the web",
-          "",
-          "• 这个仓库 czw-fs/ai_cli_space_manager 是一个 Windows 桌面工作区启动器。",
-          "",
-          "> Implement {feature}",
-          "gpt-5.5 xhigh · C:\\dev\\testproject\\aidefaultws",
-          "",
-        ].join("\r\n")}`,
-      );
-    });
-    await page.waitForFunction(() => {
-      const outputs = [...document.querySelectorAll(".codex-message.assistant .codex-live-output")];
-      return outputs.some((element) => element.textContent?.includes("Windows 桌面工作区启动器"));
-    });
-    await page.evaluate(() => {
-      window.__codexE2E.emitTerminal(
-        `\x1b[2J\x1b[H${[
-          "PS C:\\dev\\testproject\\aidefaultws> codex",
-          "OpenAI Codex (v0.125.0)",
-          "",
-          "> 介绍这个仓库",
-          "",
-          "• 这个仓库 czw-fs/ai_cli_space_manager 是一个 Windows 桌面工作区启动器，主要服务于 AI 编程工作流，尤其是配合 Codex CLI 使用。",
-          "",
-          "主要功能",
-          "- 工作区管理：添加本机目录，支持搜索、编辑、删除、拖拽排序。",
-          "- 快速打开：每个工作区可以一键用 IDE、VS Code、Typora 等工具打开。",
-          "- Codex 输入增强：支持先编辑提示词，再发送到终端里的 Codex CLI。",
-          "",
-          "技术栈",
-          "- 后端/桌面壳：Go + Wails v2",
-          "- 前端：React + TypeScript + Vite",
-          "",
-          "> Implement {feature}",
-          "gpt-5.5 xhigh · C:\\dev\\testproject\\aidefaultws",
-          "",
-        ].join("\r\n")}`,
-      );
-    });
-    await page.waitForFunction(() => {
-      const outputs = [...document.querySelectorAll(".codex-message.assistant .codex-live-output")];
-      return outputs.some((element) => element.textContent?.includes("技术栈"));
-    });
-    const longFinalText = await page.locator(".codex-message.assistant .codex-live-output").last().textContent();
-    if (!longFinalText?.includes("技术栈") || !longFinalText.includes("Go + Wails v2")) {
-      throw new Error(`Expected delayed long answer completion, got: ${longFinalText}`);
-    }
   } finally {
     await browser?.close();
     server.close();

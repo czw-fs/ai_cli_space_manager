@@ -333,15 +333,6 @@ assertEqual(
 );
 
 assertEqual(
-  mergeCodexTurnLiveText(
-    "◦ Working (0s · esc to interrupt)",
-    "• The user greeted me with a simple hello.\n\n• 你好，我在。",
-  ),
-  "• The user greeted me with a simple hello.\n\n• 你好，我在。",
-  "replaces a hollow-bullet busy status with final content",
-);
-
-assertEqual(
   terminalOutputHasCodexInputPrompt("\n> "),
   true,
   "detects codex input prompt",

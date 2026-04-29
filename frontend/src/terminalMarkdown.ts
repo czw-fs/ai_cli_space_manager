@@ -77,9 +77,6 @@ export function mergeCodexTurnLiveText(current: string, nextSnapshot: string) {
   if (!currentText) {
     return nextText;
   }
-  if (containsOnlyBusyStatus(currentText) && !startsWithBusyStatus(nextText) && containsFinalAnswerContent(nextText)) {
-    return nextText;
-  }
   const currentOnlyStatusReplaced = replaceOnlyStatusWithExpandedSnapshot(currentText, nextText);
   if (currentOnlyStatusReplaced) {
     return currentOnlyStatusReplaced;
@@ -601,25 +598,6 @@ function containsOnlyBusyStatusAndSnapshotContent(current: string, nextSnapshot:
   }
   const withoutBusy = currentLines.filter((line) => !isCodexBusyStatusLine(line)).join("\n").trim();
   return Boolean(withoutBusy) && withoutBusy === nextSnapshot.trim();
-}
-
-function containsOnlyBusyStatus(value: string) {
-  const lines = value.split("\n").filter((line) => line.trim());
-  return lines.length > 0 && lines.every((line) => isCodexBusyStatusLine(line));
-}
-
-function containsFinalAnswerContent(value: string) {
-  return value
-    .split("\n")
-    .some((line) => {
-      const trimmed = line.trim();
-      return Boolean(trimmed) && !isCodexBusyStatusLine(trimmed) && !isCodexStatusLine(trimmed);
-    });
-}
-
-function startsWithBusyStatus(value: string) {
-  const firstLine = value.split("\n").find((line) => line.trim());
-  return Boolean(firstLine && isCodexBusyStatusLine(firstLine));
 }
 
 function findLastNonBlankLineIndex(lines: string[]) {

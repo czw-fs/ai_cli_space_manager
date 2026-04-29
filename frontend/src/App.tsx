@@ -31,7 +31,6 @@ import { shouldCopyTerminalSelection } from "./terminalInput";
 import {
   mergeCodexTurnLiveText,
   terminalOutputHasCodexTurnEndPrompt,
-  terminalOutputToCodexLiveText,
   terminalOutputToCodexTurnLiveText,
 } from "./terminalMarkdown";
 import type {
@@ -90,7 +89,6 @@ const SEARCH_MIN_WIDTH = 180;
 const SEARCH_MAX_WIDTH = 420;
 const CODEX_REPLY_RAW_BUFFER_LIMIT = 240000;
 const TERMINAL_SESSION_RAW_BUFFER_LIMIT = 800000;
-const CODEX_TURN_FINALIZE_IDLE_MS = 1200;
 const normalizeTheme = (theme: string | undefined): UITheme => (theme === "light" ? "light" : "dark");
 
 const makeId = (prefix: string) =>
@@ -129,7 +127,6 @@ function App() {
   const activeCodexReplyIdBySession = useRef<Record<string, string>>({});
   const activeCodexPromptBySession = useRef<Record<string, string>>({});
   const activeCodexReplyRawBySession = useRef<Record<string, string>>({});
-  const activeCodexFinalizeTimerBySession = useRef<Record<string, number>>({});
 
   const applyState = (next: AppState) => {
     stateRef.current = next;
@@ -144,31 +141,15 @@ function App() {
     });
   };
 
-  const clearCodexFinalizeTimer = useCallback((sessionId: string) => {
-    const timer = activeCodexFinalizeTimerBySession.current[sessionId];
-    if (timer) {
-      window.clearTimeout(timer);
-      delete activeCodexFinalizeTimerBySession.current[sessionId];
-    }
-  }, []);
-
   const syncCodexReplyFromSource = useCallback(
     (sessionId: string, outputSource: string, sourceIsScreenSnapshot = false) => {
       const activeReplyId = activeCodexReplyIdBySession.current[sessionId];
       if (!activeReplyId) {
         return;
       }
-      clearCodexFinalizeTimer(sessionId);
       const prompt = activeCodexPromptBySession.current[sessionId] ?? "";
       const source = outputSource || activeCodexReplyRawBySession.current[sessionId] || "";
-      const rawSource = activeCodexReplyRawBySession.current[sessionId] || "";
-      let replyText = terminalOutputToCodexTurnLiveText(source, prompt);
-      if (rawSource && rawSource !== source) {
-        replyText = mergeCodexTurnLiveText(replyText, terminalOutputToCodexTurnLiveText(rawSource, prompt));
-      }
-      if (!replyText && sourceIsScreenSnapshot) {
-        replyText = terminalOutputToCodexLiveText(source, prompt);
-      }
+      const replyText = terminalOutputToCodexTurnLiveText(source, prompt);
       setCodexMessagesBySession((current) => {
         const messages = current[sessionId] ?? [];
         if (!messages.some((messageItem) => messageItem.id === activeReplyId)) {
@@ -180,31 +161,28 @@ function App() {
             messageItem.id === activeReplyId
               ? {
                   ...messageItem,
-                  content: mergeCodexTurnLiveText(messageItem.content, replyText),
+                  content:
+                    sourceIsScreenSnapshot && replyText
+                      ? replyText
+                      : mergeCodexTurnLiveText(messageItem.content, replyText),
                 }
               : messageItem,
           ),
         };
       });
       if (terminalOutputHasCodexTurnEndPrompt(source, prompt)) {
-        activeCodexFinalizeTimerBySession.current[sessionId] = window.setTimeout(() => {
-          if (activeCodexReplyIdBySession.current[sessionId] !== activeReplyId) {
-            return;
-          }
-          setCodexMessagesBySession((current) => ({
-            ...current,
-            [sessionId]: (current[sessionId] ?? []).map((messageItem) =>
-              messageItem.id === activeReplyId ? { ...messageItem, streaming: false } : messageItem,
-            ),
-          }));
-          delete activeCodexReplyIdBySession.current[sessionId];
-          delete activeCodexPromptBySession.current[sessionId];
-          delete activeCodexReplyRawBySession.current[sessionId];
-          delete activeCodexFinalizeTimerBySession.current[sessionId];
-        }, CODEX_TURN_FINALIZE_IDLE_MS);
+        setCodexMessagesBySession((current) => ({
+          ...current,
+          [sessionId]: (current[sessionId] ?? []).map((messageItem) =>
+            messageItem.id === activeReplyId ? { ...messageItem, streaming: false } : messageItem,
+          ),
+        }));
+        delete activeCodexReplyIdBySession.current[sessionId];
+        delete activeCodexPromptBySession.current[sessionId];
+        delete activeCodexReplyRawBySession.current[sessionId];
       }
     },
-    [clearCodexFinalizeTimer],
+    [],
   );
 
   useEffect(() => {
@@ -250,14 +228,12 @@ function App() {
       delete activeCodexReplyIdBySession.current[session.id];
       delete activeCodexPromptBySession.current[session.id];
       delete activeCodexReplyRawBySession.current[session.id];
-      clearCodexFinalizeTimer(session.id);
     });
     return () => {
       offOutput();
       offClosed();
-      Object.keys(activeCodexFinalizeTimerBySession.current).forEach(clearCodexFinalizeTimer);
     };
-  }, [clearCodexFinalizeTimer, syncCodexReplyFromSource]);
+  }, [syncCodexReplyFromSource]);
 
   const filteredDirectories = useMemo(() => {
     const value = query.trim().toLowerCase();
@@ -848,13 +824,11 @@ function App() {
               onCodexComposerChange={setCodexComposerBySession}
               onCodexScreenSnapshot={(sessionId, screenText) => syncCodexReplyFromSource(sessionId, screenText, true)}
               onCodexReplyStart={(sessionId, replyId, prompt) => {
-                clearCodexFinalizeTimer(sessionId);
                 activeCodexReplyIdBySession.current[sessionId] = replyId;
                 activeCodexPromptBySession.current[sessionId] = prompt;
                 activeCodexReplyRawBySession.current[sessionId] = "";
               }}
               onCodexMessagesClear={(sessionId) => {
-                clearCodexFinalizeTimer(sessionId);
                 delete activeCodexReplyIdBySession.current[sessionId];
                 delete activeCodexPromptBySession.current[sessionId];
                 delete activeCodexReplyRawBySession.current[sessionId];
