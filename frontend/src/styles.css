@@ -800,8 +800,7 @@ body.resizing-sidebar * {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   background:
-    linear-gradient(90deg, rgba(255, 255, 255, .025) 1px, transparent 1px) 0 0 / 44px 44px,
-    linear-gradient(180deg, rgba(125, 211, 252, .08), transparent 34%),
+    linear-gradient(180deg, rgba(15, 23, 42, .72), rgba(7, 11, 19, .96)),
     #070b13;
 }
 
@@ -820,7 +819,7 @@ body.resizing-sidebar * {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 28px 22px;
+  padding: 34px 32px 28px;
 }
 
 .codex-chat-placeholder {
@@ -870,8 +869,8 @@ body.resizing-sidebar * {
 
 .codex-message {
   display: flex;
+  width: min(1120px, 100%);
   margin: 0 auto 18px;
-  max-width: 1080px;
 }
 
 .codex-message.user {
@@ -883,37 +882,39 @@ body.resizing-sidebar * {
 }
 
 .codex-message-bubble {
-  max-width: min(780px, 78%);
+  max-width: min(860px, 82%);
   min-width: 0;
-  border: 1px solid rgba(125, 211, 252, .16);
-  border-radius: 14px;
-  padding: 13px 15px;
+  border: 1px solid rgba(125, 211, 252, .14);
+  border-radius: 10px;
+  padding: 14px 16px;
   color: #dce6f3;
   text-align: left;
-  overflow-wrap: anywhere;
-  box-shadow: 0 18px 36px rgba(0, 0, 0, .20);
+  overflow-wrap: break-word;
+  word-break: normal;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, .20);
 }
 
 .codex-message.user .codex-message-bubble {
   border-color: rgba(96, 165, 250, .42);
-  background: linear-gradient(135deg, #15406e, #0e2a4d);
+  background: #153b63;
   color: #eff6ff;
 }
 
 .codex-message.assistant .codex-message-bubble {
-  background: linear-gradient(180deg, rgba(17, 24, 39, .96), rgba(10, 17, 30, .96));
+  max-width: min(940px, 88%);
+  background: #0f1726;
 }
 
 .codex-message-bubble p {
   margin: 0;
   white-space: pre-wrap;
-  line-height: 1.5;
+  line-height: 1.62;
 }
 
 .codex-message .markdown-body {
   max-width: none;
   margin: 0;
-  font-size: 14px;
+  font-size: 14.5px;
 }
 
 .codex-message .markdown-body > :last-child {
@@ -997,13 +998,13 @@ body.resizing-sidebar * {
   width: min(1120px, calc(100% - 32px));
   display: grid;
   gap: 8px;
-  margin: 0 auto 14px;
+  margin: 0 auto 16px;
   padding: 10px;
-  border: 1px solid rgba(125, 211, 252, .20);
-  border-radius: 16px;
-  background: rgba(9, 16, 29, .92);
+  border: 1px solid rgba(125, 211, 252, .18);
+  border-radius: 12px;
+  background: rgba(9, 16, 29, .96);
   box-shadow:
-    0 18px 50px rgba(0, 0, 0, .36),
+    0 18px 44px rgba(0, 0, 0, .34),
     inset 0 1px 0 rgba(255, 255, 255, .04);
 }
 
@@ -1018,16 +1019,14 @@ body.resizing-sidebar * {
 .codex-chat-input-row textarea {
   width: 100%;
   min-width: 0;
-  height: 78px;
+  height: 76px;
   resize: none;
   border: 0;
-  border-radius: 12px;
+  border-radius: 8px;
   background: #f8fbff;
-  color: #0b1220;
-  color: #e5edf7;
   color: #0f172a;
   padding: 13px 14px;
-  line-height: 1.4;
+  line-height: 1.45;
   outline: none;
   box-shadow: inset 0 0 0 1px rgba(203, 213, 225, .8);
 }
@@ -1042,7 +1041,7 @@ body.resizing-sidebar * {
   width: 64px;
   height: 40px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 8px;
   background: linear-gradient(135deg, #0ea5e9, #2563eb);
   color: #fff;
   font-size: 13px;
@@ -1085,9 +1084,10 @@ body.resizing-sidebar * {
   margin: 0 auto;
   color: #dce6f3;
   text-align: left;
-  line-height: 1.58;
+  line-height: 1.66;
   font-size: 14px;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .markdown-empty {
@@ -2232,8 +2232,7 @@ body.resizing-sidebar .theme-light .sidebar-resize-handle::after {
 .theme-light .codex-chat,
 .theme-light .codex-chat-empty {
   background:
-    linear-gradient(90deg, rgba(37, 99, 235, .045) 1px, transparent 1px) 0 0 / 44px 44px,
-    linear-gradient(180deg, rgba(14, 165, 233, .10), transparent 34%),
+    linear-gradient(180deg, rgba(248, 251, 255, .98), rgba(238, 244, 250, .98)),
     #eef4fa;
 }
 
@@ -2314,7 +2313,7 @@ body.resizing-sidebar .theme-light .sidebar-resize-handle::after {
 
 .theme-light .codex-message.user .codex-message-bubble {
   border-color: rgba(37, 99, 235, .22);
-  background: #e8f2ff;
+  background: #dfeeff;
   color: #0f172a;
 }
 

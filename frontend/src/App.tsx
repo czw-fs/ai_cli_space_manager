@@ -84,6 +84,7 @@ const COMPOSER_MAX_HEIGHT = 180;
 const DEFAULT_SEARCH_WIDTH = 260;
 const SEARCH_MIN_WIDTH = 180;
 const SEARCH_MAX_WIDTH = 420;
+const CODEX_REPLY_RAW_BUFFER_LIMIT = 240000;
 const normalizeTheme = (theme: string | undefined): UITheme => (theme === "light" ? "light" : "dark");
 
 const makeId = (prefix: string) =>
@@ -120,6 +121,7 @@ function App() {
   const pendingTerminalOutput = useRef<Record<string, string>>({});
   const activeCodexReplyIdBySession = useRef<Record<string, string>>({});
   const activeCodexPromptBySession = useRef<Record<string, string>>({});
+  const activeCodexReplyRawBySession = useRef<Record<string, string>>({});
 
   const applyState = (next: AppState) => {
     stateRef.current = next;
@@ -147,17 +149,27 @@ function App() {
     const offOutput = EventsOn("terminal:output", (event: TerminalOutputEvent) => {
       const activeReplyId = activeCodexReplyIdBySession.current[event.sessionId];
       if (activeReplyId) {
-        const replyText = terminalOutputToCodexReplyText(event.data, activeCodexPromptBySession.current[event.sessionId] ?? "");
-        if (replyText) {
-          setCodexMessagesBySession((current) => ({
+        const rawOutput = `${activeCodexReplyRawBySession.current[event.sessionId] ?? ""}${event.data}`;
+        activeCodexReplyRawBySession.current[event.sessionId] =
+          rawOutput.length > CODEX_REPLY_RAW_BUFFER_LIMIT
+            ? rawOutput.slice(rawOutput.length - CODEX_REPLY_RAW_BUFFER_LIMIT)
+            : rawOutput;
+        const replyText = terminalOutputToCodexReplyText(
+          activeCodexReplyRawBySession.current[event.sessionId],
+          activeCodexPromptBySession.current[event.sessionId] ?? "",
+        );
+        setCodexMessagesBySession((current) => {
+          const messages = current[event.sessionId] ?? [];
+          if (!messages.some((messageItem) => messageItem.id === activeReplyId)) {
+            return current;
+          }
+          return {
             ...current,
-            [event.sessionId]: (current[event.sessionId] ?? []).map((messageItem) =>
-              messageItem.id === activeReplyId
-                ? { ...messageItem, content: `${messageItem.content}${replyText}` }
-                : messageItem,
+            [event.sessionId]: messages.map((messageItem) =>
+              messageItem.id === activeReplyId ? { ...messageItem, content: replyText } : messageItem,
             ),
-          }));
-        }
+          };
+        });
         if (terminalOutputHasCodexInputPrompt(event.data)) {
           setCodexMessagesBySession((current) => ({
             ...current,
@@ -167,6 +179,7 @@ function App() {
           }));
           delete activeCodexReplyIdBySession.current[event.sessionId];
           delete activeCodexPromptBySession.current[event.sessionId];
+          delete activeCodexReplyRawBySession.current[event.sessionId];
         }
       }
       const handle = terminalInstances.current[event.sessionId];
@@ -183,6 +196,7 @@ function App() {
       delete pendingTerminalOutput.current[session.id];
       delete activeCodexReplyIdBySession.current[session.id];
       delete activeCodexPromptBySession.current[session.id];
+      delete activeCodexReplyRawBySession.current[session.id];
     });
     return () => {
       offOutput();
@@ -447,6 +461,7 @@ function App() {
       });
       delete activeCodexReplyIdBySession.current[sessionId];
       delete activeCodexPromptBySession.current[sessionId];
+      delete activeCodexReplyRawBySession.current[sessionId];
       disposeTerminalHandle(terminalInstances.current[sessionId]);
       delete terminalInstances.current[sessionId];
       delete pendingTerminalOutput.current[sessionId];
@@ -778,10 +793,14 @@ function App() {
               onCodexReplyStart={(sessionId, replyId, prompt) => {
                 activeCodexReplyIdBySession.current[sessionId] = replyId;
                 activeCodexPromptBySession.current[sessionId] = prompt;
+                activeCodexReplyRawBySession.current[sessionId] = "";
               }}
-              onCodexMessagesClear={(sessionId) =>
-                setCodexMessagesBySession((current) => ({ ...current, [sessionId]: [] }))
-              }
+              onCodexMessagesClear={(sessionId) => {
+                delete activeCodexReplyIdBySession.current[sessionId];
+                delete activeCodexPromptBySession.current[sessionId];
+                delete activeCodexReplyRawBySession.current[sessionId];
+                setCodexMessagesBySession((current) => ({ ...current, [sessionId]: [] }));
+              }}
             />
           )}
         </main>
