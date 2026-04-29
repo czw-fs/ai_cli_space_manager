@@ -220,6 +220,50 @@ assertEqual(
   "does not show historical terminal content before the current prompt appears",
 );
 
+const pollutedCodexSnapshot = terminalOutputToCodexTurnLiveText(
+  [
+    "PS C:\\dev\\testproject\\aidefaultws> codex",
+    "OpenAI Codex (v0.125.0)",
+    "model: gpt-5.5 xhigh /model to change",
+    "directory: C:\\dev\\testproject\\aidefaultws",
+    "permissions: YOLO mode",
+    "",
+    "Tip: New Build faster with Codex.",
+    "• Working (11s · esc to interrupt)",
+    "• 我先打开仓库README，已读结构和启动方式。现在给你一个中文概览。",
+    "",
+    "• Searching the web",
+    "",
+    "• Searched https://github.com/czw-fs/ai_cli_space_manager",
+    "",
+    "> 介绍一下这个仓库",
+    "",
+    "• Working (0s · esc to interrupt)",
+    "• Searching the web",
+    "• Searched https://github.com/czw-fs/ai_cli_space_manager",
+    "• 我先打开仓库README，已读结构和启动方式。现在给你一个中文概览。",
+    "",
+    "这个仓库是一个 Windows 桌面工作区启动器。",
+    "",
+    "> Implement {feature}",
+    "gpt-5.5 xhigh · C:\\dev\\testproject\\aidefaultws",
+  ].join("\n"),
+  "介绍一下这个仓库",
+);
+
+assertEqual(
+  pollutedCodexSnapshot,
+  [
+    "• Working (0s · esc to interrupt)",
+    "• Searching the web",
+    "• Searched https://github.com/czw-fs/ai_cli_space_manager",
+    "• 我先打开仓库README，已读结构和启动方式。现在给你一个中文概览。",
+    "",
+    "这个仓库是一个 Windows 桌面工作区启动器。",
+  ].join("\n"),
+  "ignores terminal chrome and historical status spam around the active codex turn",
+);
+
 assertEqual(
   terminalOutputHasCodexTurnEndPrompt(
     "> 当前问题\n• Working\n回答\n\n> Implement {feature}",
@@ -330,6 +374,15 @@ assertEqual(
   ),
   "• 你好。",
   "removes stale busy status when the authoritative screen snapshot only contains the final answer",
+);
+
+assertEqual(
+  mergeCodexTurnLiveText(
+    "◦ Working (0s · esc to interrupt)",
+    "• The user greeted me with a simple hello.\n\n• 你好，我在。",
+  ),
+  "• The user greeted me with a simple hello.\n\n• 你好，我在。",
+  "replaces a hollow-bullet busy status with final content",
 );
 
 assertEqual(

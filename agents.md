@@ -15,3 +15,4 @@
 12. Codex 新界面实时映射的数据源使用整个终端会话 raw buffer（`terminalRawBySession`），不要只用提交后的 active reply 增量；Codex TUI 的光标重绘依赖历史屏幕状态，单独增量会导致只能解析到重复 `Working`。合并逻辑还要避免“下一帧包含 busy 状态和回答正文时提前只更新状态并丢正文”。
 13. Codex 新界面现在优先读取同一终端会话的 xterm 已渲染 buffer 作为权威屏幕快照，再用当前用户输入锚点切出本轮输出；Codex 视图下会保留隐藏的 xterm host 作为同步数据源，但界面不显示任何终端内容。xterm 快照有内容时直接替换当前 assistant 气泡，避免最终回答出现后仍残留旧 `Working` 状态。
 14. Codex 聊天同步有真实浏览器 e2e 覆盖：`npm test` 会运行 `test/codexChat.e2e.mjs`，打开构建后的前端、mock Wails 终端会话、通过 Codex 输入框发送消息，并模拟 Codex CLI 先输出 `◦ Working` 再整屏重绘最终回答；测试要求聊天气泡实时更新为最终回答且不残留旧 `Working`。
+15. Codex 聊天映射不能在找不到当前用户输入锚点时退回解析整屏终端内容；只能映射当前 activePrompt 之后的本轮输出，或同样能按 activePrompt 切片的 active raw buffer。`PS ...> codex`、`OpenAI Codex`、`model/directory/permissions`、`Tip:` 等 Codex/终端外壳必须始终过滤，避免启动 banner、终端 prompt、历史搜索状态污染当前气泡。长回复结束使用短延迟 finalize 等最后一帧，不允许用无锚点整屏 fallback 解决截断问题。

@@ -77,6 +77,9 @@ export function mergeCodexTurnLiveText(current: string, nextSnapshot: string) {
   if (!currentText) {
     return nextText;
   }
+  if (containsOnlyBusyStatus(currentText) && !startsWithBusyStatus(nextText) && containsFinalAnswerContent(nextText)) {
+    return nextText;
+  }
   const currentOnlyStatusReplaced = replaceOnlyStatusWithExpandedSnapshot(currentText, nextText);
   if (currentOnlyStatusReplaced) {
     return currentOnlyStatusReplaced;
@@ -439,6 +442,9 @@ function isCodexTerminalChromeLine(line: string, activePromptLines: Set<string>,
   if (!trimmed) {
     return false;
   }
+  if (isCodexSessionChromeLine(trimmed)) {
+    return true;
+  }
   if (activePromptLines.has(trimmed)) {
     return true;
   }
@@ -469,6 +475,9 @@ function isCodexLiveChromeLine(line: string, activePromptLines: Set<string>) {
   if (!trimmed) {
     return false;
   }
+  if (isCodexSessionChromeLine(trimmed)) {
+    return true;
+  }
   if (activePromptLines.has(trimmed)) {
     return true;
   }
@@ -479,6 +488,22 @@ function isCodexLiveChromeLine(line: string, activePromptLines: Set<string>) {
     return true;
   }
   if (/^[A-Za-z]:[\\/].+/.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
+function isCodexSessionChromeLine(trimmed: string) {
+  if (/^PS\s+[A-Za-z]:[\\/].*>\s*(?:codex\b.*)?$/i.test(trimmed)) {
+    return true;
+  }
+  if (/^OpenAI\s+Codex\b/i.test(trimmed)) {
+    return true;
+  }
+  if (/^(?:model|directory|permissions)\s*:/i.test(trimmed)) {
+    return true;
+  }
+  if (/^Tip:\s+/i.test(trimmed)) {
     return true;
   }
   return false;
@@ -598,6 +623,25 @@ function containsOnlyBusyStatusAndSnapshotContent(current: string, nextSnapshot:
   }
   const withoutBusy = currentLines.filter((line) => !isCodexBusyStatusLine(line)).join("\n").trim();
   return Boolean(withoutBusy) && withoutBusy === nextSnapshot.trim();
+}
+
+function containsOnlyBusyStatus(value: string) {
+  const lines = value.split("\n").filter((line) => line.trim());
+  return lines.length > 0 && lines.every((line) => isCodexBusyStatusLine(line));
+}
+
+function containsFinalAnswerContent(value: string) {
+  return value
+    .split("\n")
+    .some((line) => {
+      const trimmed = line.trim();
+      return Boolean(trimmed) && !isCodexBusyStatusLine(trimmed) && !isCodexStatusLine(trimmed);
+    });
+}
+
+function startsWithBusyStatus(value: string) {
+  const firstLine = value.split("\n").find((line) => line.trim());
+  return Boolean(firstLine && isCodexBusyStatusLine(firstLine));
 }
 
 function findLastNonBlankLineIndex(lines: string[]) {
