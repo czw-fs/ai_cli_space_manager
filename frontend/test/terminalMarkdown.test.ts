@@ -162,6 +162,44 @@ assertEqual(
 );
 
 assertEqual(
+  terminalOutputToCodexTurnLiveText(
+    [
+      "OpenAI Codex (v0.125.0)",
+      "model: gpt-5.5 xhigh",
+      "",
+      "> hi",
+      "",
+      "• 你好。",
+      "",
+      "> hi",
+      "",
+      "• 你好。有什么需要我处理的吗？",
+      "",
+      "> 本次问题",
+      "• Working (0s · esc to interrupt)",
+      "• Thinking",
+      "",
+      "这次回答正文",
+      "",
+      "> Implement {feature}",
+      "gpt-5.5 xhigh · C:\\dev\\repo",
+    ].join("\n"),
+    "本次问题",
+  ),
+  "• Working (0s · esc to interrupt)\n• Thinking\n\n这次回答正文",
+  "extracts the current codex turn from the full terminal session transcript",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
+    "OpenAI Codex\n\n> hi\n\n• 历史回答\n\n> Implement {feature}",
+    "还没出现在屏幕的问题",
+  ),
+  "",
+  "does not show historical terminal content before the current prompt appears",
+);
+
+assertEqual(
   terminalOutputHasCodexTurnEndPrompt(
     "> 当前问题\n• Working\n回答\n\n> Implement {feature}",
     "当前问题",
@@ -192,6 +230,52 @@ assertEqual(
   ),
   "• Working (1s · esc to interrupt)\n• Thinking\n\n我会先检查项目结构。",
   "appends later codex thinking output after the live status",
+);
+
+assertEqual(
+  mergeCodexTurnLiveText(
+    "• Working (1s · esc to interrupt)",
+    "• Working (1s · esc to interrupt)\n\n最终回答",
+  ),
+  "• Working (1s · esc to interrupt)\n\n最终回答",
+  "does not drop answer text when a snapshot includes both busy status and content",
+);
+
+const firstFullSessionSnapshot = terminalOutputToCodexTurnLiveText(
+  [
+    "OpenAI Codex",
+    "",
+    "> hi",
+    "",
+    "• 历史回答",
+    "",
+    "> 本次问题",
+    "• Working (0s · esc to interrupt)",
+  ].join("\n"),
+  "本次问题",
+);
+const secondFullSessionSnapshot = terminalOutputToCodexTurnLiveText(
+  [
+    "OpenAI Codex",
+    "",
+    "> hi",
+    "",
+    "• 历史回答",
+    "",
+    "> 本次问题",
+    "• Working (1s · esc to interrupt)",
+    "",
+    "本次回答",
+    "",
+    "> Implement {feature}",
+  ].join("\n"),
+  "本次问题",
+);
+
+assertEqual(
+  mergeCodexTurnLiveText(firstFullSessionSnapshot, secondFullSessionSnapshot),
+  "• Working (1s · esc to interrupt)\n\n本次回答",
+  "keeps live mapping when full terminal snapshots evolve from status to answer",
 );
 
 assertEqual(

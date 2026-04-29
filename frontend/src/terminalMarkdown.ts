@@ -58,7 +58,7 @@ export function terminalOutputToCodexLiveText(value: string, activePrompt = "") 
 export function terminalOutputToCodexTurnLiveText(value: string, activePrompt = "") {
   const promptLines = makePromptLineSet(activePrompt);
   const screenLines = terminalOutputToScreenText(value).split("\n");
-  const currentTurnLines = sliceCodexCurrentTurnLines(screenLines, activePrompt);
+  const currentTurnLines = sliceCodexCurrentTurnLines(screenLines, activePrompt, true);
   const boundedLines = truncateAtNextCodexInputPrompt(currentTurnLines, promptLines);
   return trimBlankEdges(
     boundedLines
@@ -75,6 +75,10 @@ export function mergeCodexTurnLiveText(current: string, nextSnapshot: string) {
   }
   if (!currentText) {
     return nextText;
+  }
+  const currentOnlyStatusReplaced = replaceOnlyStatusWithExpandedSnapshot(currentText, nextText);
+  if (currentOnlyStatusReplaced) {
+    return currentOnlyStatusReplaced;
   }
   const currentStatusUpdated = replaceTrailingStatusLine(currentText, nextText);
   if (currentStatusUpdated) {
@@ -101,7 +105,7 @@ export function terminalOutputHasCodexInputPrompt(value: string) {
 
 export function terminalOutputHasCodexTurnEndPrompt(value: string, activePrompt = "") {
   const promptLines = makePromptLineSet(activePrompt);
-  const currentTurnLines = sliceCodexCurrentTurnLines(terminalOutputToScreenText(value).split("\n"), activePrompt);
+  const currentTurnLines = sliceCodexCurrentTurnLines(terminalOutputToScreenText(value).split("\n"), activePrompt, true);
   let hasMappedContent = false;
   let lastMappedLineWasBusyStatus = false;
   for (const line of currentTurnLines) {
@@ -248,9 +252,12 @@ function terminalOutputToScreenText(value: string) {
     .replace(/\n+$/g, "");
 }
 
-function sliceCodexCurrentTurnLines(lines: string[], activePrompt: string) {
+function sliceCodexCurrentTurnLines(lines: string[], activePrompt: string, requireAnchor = false) {
   const anchorEndIndex = findCurrentPromptAnchorEndIndex(lines, activePrompt);
   if (anchorEndIndex < 0) {
+    if (requireAnchor && normalizePromptCompact(activePrompt)) {
+      return [];
+    }
     return lines;
   }
   return lines.slice(anchorEndIndex + 1);
@@ -543,6 +550,9 @@ function replaceTrailingStatusLine(current: string, nextSnapshot: string) {
   if (currentLines.length === 0 || nextLines.length === 0) {
     return "";
   }
+  if (nextLines.some((line) => !isCodexBusyStatusLine(line))) {
+    return "";
+  }
   const currentLastIndex = findLastNonBlankLineIndex(currentLines);
   const nextStatusLine = nextLines.find((line) => isCodexBusyStatusLine(line));
   if (currentLastIndex < 0 || !nextStatusLine || !isCodexBusyStatusLine(currentLines[currentLastIndex])) {
@@ -553,6 +563,23 @@ function replaceTrailingStatusLine(current: string, nextSnapshot: string) {
   }
   currentLines[currentLastIndex] = nextStatusLine;
   return trimBlankEdges(currentLines.join("\n"));
+}
+
+function replaceOnlyStatusWithExpandedSnapshot(current: string, nextSnapshot: string) {
+  const currentLines = current.split("\n").filter((line) => line.trim());
+  const nextLines = nextSnapshot.split("\n").filter((line) => line.trim());
+  if (currentLines.length !== 1 || nextLines.length < 2) {
+    return "";
+  }
+  const currentStatus = currentLines[0];
+  const nextFirstLine = nextLines[0];
+  if (!isCodexBusyStatusLine(currentStatus) || !isCodexBusyStatusLine(nextFirstLine)) {
+    return "";
+  }
+  if (statusLineKind(currentStatus) !== statusLineKind(nextFirstLine)) {
+    return "";
+  }
+  return trimBlankEdges(nextSnapshot);
 }
 
 function findLastNonBlankLineIndex(lines: string[]) {
