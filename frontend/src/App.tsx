@@ -26,10 +26,9 @@ import {
   visibleOpeners,
 } from "./directoryOpeners";
 import { reorderDirectories } from "./directoryOrder";
-import { MarkdownRenderer } from "./markdownRenderer";
 import { commandTemplateForApplication, nameFromApplicationPath } from "./openerCommand";
 import { shouldCopyTerminalSelection } from "./terminalInput";
-import { terminalOutputHasCodexInputPrompt, terminalOutputToCodexReplyText } from "./terminalMarkdown";
+import { terminalOutputHasCodexInputPrompt, terminalOutputToCodexLiveText } from "./terminalMarkdown";
 import type {
   AppState,
   AttachmentFile,
@@ -154,7 +153,7 @@ function App() {
           rawOutput.length > CODEX_REPLY_RAW_BUFFER_LIMIT
             ? rawOutput.slice(rawOutput.length - CODEX_REPLY_RAW_BUFFER_LIMIT)
             : rawOutput;
-        const replyText = terminalOutputToCodexReplyText(
+        const replyText = terminalOutputToCodexLiveText(
           activeCodexReplyRawBySession.current[event.sessionId],
           activeCodexPromptBySession.current[event.sessionId] ?? "",
         );
@@ -1684,21 +1683,23 @@ function CodexPanel({
             </div>
           </div>
         ) : (
-          messages.map((messageItem) => (
-            <article
-              className={messageItem.role === "user" ? "codex-message user" : "codex-message assistant"}
-              key={messageItem.id}
-            >
-              <div className="codex-message-bubble">
-                {messageItem.content ? (
-                  messageItem.role === "assistant" ? (
-                    <MarkdownRenderer content={messageItem.content} />
-                  ) : (
-                    <p>{messageItem.content}</p>
-                  )
-                ) : (
-                  <span className="codex-message-pending">等待回复...</span>
-                )}
+          messages.map((messageItem) => {
+            if (messageItem.role === "assistant" && !messageItem.content && !messageItem.attachments?.length) {
+              return null;
+            }
+            return (
+              <article
+                className={messageItem.role === "user" ? "codex-message user" : "codex-message assistant"}
+                key={messageItem.id}
+              >
+                <div className="codex-message-bubble">
+                  {messageItem.content ? (
+                    messageItem.role === "assistant" ? (
+                      <pre className="codex-live-output">{messageItem.content}</pre>
+                    ) : (
+                      <p>{messageItem.content}</p>
+                    )
+                  ) : null}
                 {messageItem.attachments && messageItem.attachments.length > 0 && (
                   <div className="codex-message-attachments">
                     {messageItem.attachments.map((attachment) => (
@@ -1713,10 +1714,10 @@ function CodexPanel({
                     ))}
                   </div>
                 )}
-                {messageItem.streaming && <span className="codex-stream-cursor" />}
               </div>
-            </article>
-          ))
+              </article>
+            );
+          })
         )}
       </div>
       <div className="codex-chat-input">

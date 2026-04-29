@@ -35,12 +35,7 @@ export function appendTerminalMarkdownOutput(current: string, chunk: string) {
 
 export function terminalOutputToCodexReplyText(value: string, activePrompt = "") {
   const text = terminalOutputToScreenText(value);
-  const promptLines = new Set(
-    activePrompt
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean),
-  );
+  const promptLines = makePromptLineSet(activePrompt);
   const lines = text.split("\n");
   const hasStatusNoise = lines.some((line) => isCodexStatusLine(line));
   return lines
@@ -50,10 +45,29 @@ export function terminalOutputToCodexReplyText(value: string, activePrompt = "")
     .replace(/\n{4,}/g, "\n\n\n");
 }
 
+export function terminalOutputToCodexLiveText(value: string, activePrompt = "") {
+  const promptLines = makePromptLineSet(activePrompt);
+  return trimBlankEdges(
+    terminalOutputToScreenText(value)
+      .split("\n")
+      .filter((line) => !isCodexLiveChromeLine(line, promptLines))
+      .join("\n"),
+  );
+}
+
 export function terminalOutputHasCodexInputPrompt(value: string) {
   return terminalOutputToMarkdownText(value)
     .split("\n")
-    .some((line) => /^\s*[>›]\s*$/.test(line));
+    .some((line) => isCodexIdleInputPromptLine(line.trim()));
+}
+
+function makePromptLineSet(activePrompt: string) {
+  return new Set(
+    activePrompt
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean),
+  );
 }
 
 function terminalOutputToScreenText(value: string) {
@@ -312,6 +326,50 @@ function isCodexTerminalChromeLine(line: string, activePromptLines: Set<string>,
   return false;
 }
 
+function isCodexLiveChromeLine(line: string, activePromptLines: Set<string>) {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (activePromptLines.has(trimmed)) {
+    return true;
+  }
+  if (isCodexInputPromptLine(trimmed, activePromptLines)) {
+    return true;
+  }
+  if (/^gpt-[\w.-]+(?:\s+\w+)?\s*·\s*[A-Za-z]:[\\/]/i.test(trimmed)) {
+    return true;
+  }
+  if (/^[A-Za-z]:[\\/].+/.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
+function isCodexInputPromptLine(trimmed: string, activePromptLines: Set<string>) {
+  if (/^[>›]\s*$/.test(trimmed)) {
+    return true;
+  }
+  const promptText = trimmed.replace(/^[>›]\s*/, "").trim();
+  if (activePromptLines.has(promptText)) {
+    return true;
+  }
+  if (/^[>›]\s*Implement\s+\{feature\}\s*$/i.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
+function isCodexIdleInputPromptLine(trimmed: string) {
+  if (/^[>›]\s*$/.test(trimmed)) {
+    return true;
+  }
+  if (/^[>›]\s*Implement\s+\{feature\}\s*$/i.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
 function isCodexStatusLine(line: string) {
   const trimmed = line.trim();
   if (!trimmed) {
@@ -369,4 +427,15 @@ function isCodexStatusFragment(line: string) {
 
 function stripCodexMessagePrefix(line: string) {
   return line.replace(/^\s*[•·]\s+/, "");
+}
+
+function trimBlankEdges(value: string) {
+  const lines = value.split("\n");
+  while (lines.length > 0 && !lines[0].trim()) {
+    lines.shift();
+  }
+  while (lines.length > 0 && !lines[lines.length - 1].trim()) {
+    lines.pop();
+  }
+  return lines.join("\n");
 }

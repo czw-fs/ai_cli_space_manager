@@ -2,6 +2,7 @@ import {
   appendTerminalMarkdownOutput,
   stripTerminalControlSequences,
   terminalOutputHasCodexInputPrompt,
+  terminalOutputToCodexLiveText,
   terminalOutputToCodexReplyText,
   terminalOutputToMarkdownText,
 } from "../src/terminalMarkdown";
@@ -83,9 +84,27 @@ assertEqual(
 );
 
 assertEqual(
+  terminalOutputToCodexLiveText("你好，我在。请把要处理的任务或代码问题发给我。\n\n> Implement {feature}\n"),
+  "你好，我在。请把要处理的任务或代码问题发给我。",
+  "maps codex live output while hiding interactive input placeholder",
+);
+
+assertEqual(
+  terminalOutputToCodexLiveText("• Working (2s · esc to interrupt)\n\n正在检查项目结构\n\n> 修复界面", "修复界面"),
+  "• Working (2s · esc to interrupt)\n\n正在检查项目结构",
+  "keeps codex live status output but hides echoed active prompt",
+);
+
+assertEqual(
   terminalOutputHasCodexInputPrompt("\n> "),
   true,
   "detects codex input prompt",
+);
+
+assertEqual(
+  terminalOutputHasCodexInputPrompt("> Implement {feature}"),
+  true,
+  "detects codex placeholder prompt as idle input prompt",
 );
 
 assertEqual(

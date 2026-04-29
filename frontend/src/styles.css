@@ -911,6 +911,17 @@ body.resizing-sidebar * {
   line-height: 1.62;
 }
 
+.codex-live-output {
+  margin: 0;
+  color: inherit;
+  font-family: Consolas, "Cascadia Mono", "Microsoft YaHei", monospace;
+  font-size: 13.5px;
+  line-height: 1.58;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
 .codex-message .markdown-body {
   max-width: none;
   margin: 0;
@@ -919,28 +930,6 @@ body.resizing-sidebar * {
 
 .codex-message .markdown-body > :last-child {
   margin-bottom: 0;
-}
-
-.codex-message-pending {
-  color: #9ab1cc;
-  font-size: 13px;
-}
-
-.codex-stream-cursor {
-  display: inline-block;
-  width: 7px;
-  height: 15px;
-  margin-left: 3px;
-  vertical-align: -2px;
-  border-radius: 2px;
-  background: #93c5fd;
-  animation: codex-cursor-blink 1s steps(2, start) infinite;
-}
-
-@keyframes codex-cursor-blink {
-  50% {
-    opacity: 0;
-  }
 }
 
 .codex-message-attachments,
@@ -2321,10 +2310,6 @@ body.resizing-sidebar .theme-light .sidebar-resize-handle::after {
   border-color: #d7e1ed;
   background: #ffffff;
   color: #26384f;
-}
-
-.theme-light .codex-message-pending {
-  color: #64748b;
 }
 
 .theme-light .markdown-body {
