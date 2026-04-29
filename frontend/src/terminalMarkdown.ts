@@ -1,5 +1,6 @@
 const MAX_MARKDOWN_OUTPUT_CHARS = 120000;
 const MAX_CODEX_TERMINAL_ROWS = 1200;
+const CODEX_STATUS_PREFIX_PATTERN = "[•·*◦○●-]?";
 
 type CursorState = {
   row: number;
@@ -525,7 +526,7 @@ function isCodexStatusLine(line: string) {
   if (/\besc to interrupt\b/i.test(trimmed)) {
     return true;
   }
-  if (/^[•·*]\s*(?:working|thinking|running|reading|writing|searching|applying|planning)\b/i.test(trimmed)) {
+  if (new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*(?:working|thinking|running|reading|writing|searching|applying|planning)\\b`, "i").test(trimmed)) {
     return true;
   }
   if (/^(?:working|thinking|running|reading|writing|searching|applying|planning)(?:\s*\(\d+s|\s*\.{1,3}|…)?$/i.test(trimmed)) {
@@ -539,11 +540,16 @@ function isCodexStatusLine(line: string) {
 
 function isCodexBusyStatusLine(line: string) {
   const trimmed = line.trim();
-  return /^[•·*]?\s*(?:working|thinking|running|reading|writing|searching|applying|planning)\b/i.test(trimmed);
+  if (/\besc to interrupt\b/i.test(trimmed)) {
+    return true;
+  }
+  return new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*(?:working|thinking|running|reading|writing|searching|applying|planning)\\b`, "i").test(trimmed);
 }
 
 function statusLineKind(line: string) {
-  const match = line.trim().match(/^[•·*]?\s*(working|thinking|running|reading|writing|searching|applying|planning)\b/i);
+  const match = line
+    .trim()
+    .match(new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*(working|thinking|running|reading|writing|searching|applying|planning)\\b`, "i"));
   return match ? match[1].toLowerCase() : "";
 }
 

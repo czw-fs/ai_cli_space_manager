@@ -239,9 +239,24 @@ assertEqual(
 );
 
 assertEqual(
+  terminalOutputHasCodexTurnEndPrompt(
+    "> 当前问题\n◦ Working (1s · esc to interrupt)\n\n> Implement {feature}",
+    "当前问题",
+  ),
+  false,
+  "does not finish current turn while codex is still showing a hollow bullet busy status",
+);
+
+assertEqual(
   mergeCodexTurnLiveText("• Working (0s · esc to interrupt)", "• Working (1s · esc to interrupt)"),
   "• Working (1s · esc to interrupt)",
   "updates the live working timer in place",
+);
+
+assertEqual(
+  mergeCodexTurnLiveText("◦ Working (0s · esc to interrupt)", "◦ Working (1s · esc to interrupt)"),
+  "◦ Working (1s · esc to interrupt)",
+  "updates the live working timer with the codex hollow bullet prefix",
 );
 
 assertEqual(

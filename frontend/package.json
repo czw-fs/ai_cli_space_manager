@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node --loader ./test/ts-loader.mjs test/codexComposer.test.ts && node --loader ./test/ts-loader.mjs test/directoryOpeners.test.ts && node --loader ./test/ts-loader.mjs test/directoryOrder.test.ts && node --loader ./test/ts-loader.mjs test/openerCommand.test.ts && node --loader ./test/ts-loader.mjs test/terminalInput.test.ts && node --loader ./test/ts-loader.mjs test/terminalMarkdown.test.ts",
+    "test": "node --loader ./test/ts-loader.mjs test/codexComposer.test.ts && node --loader ./test/ts-loader.mjs test/directoryOpeners.test.ts && node --loader ./test/ts-loader.mjs test/directoryOrder.test.ts && node --loader ./test/ts-loader.mjs test/openerCommand.test.ts && node --loader ./test/ts-loader.mjs test/terminalInput.test.ts && node --loader ./test/ts-loader.mjs test/terminalMarkdown.test.ts && npm run test:e2e",
+    "test:e2e": "npm run build && playwright install chromium && node test/codexChat.e2e.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -16,6 +17,7 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/react": "^18.0.17",
     "@types/react-dom": "^18.0.6",
     "@vitejs/plugin-react": "^2.0.1",

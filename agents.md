@@ -14,3 +14,4 @@
 11. Codex 实时输出不能用最后一帧屏幕直接覆盖 assistant 内容；当前使用 `mergeCodexTurnLiveText` 合并新快照，忙碌状态行（如 `Working (0s)` 到 `Working (1s)`）原位更新，后续 Thinking/Searching/工具输出/最终回答继续追加。同时 `terminalOutputHasCodexTurnEndPrompt` 在最后可见内容仍是 busy status 时不能结束本轮。
 12. Codex 新界面实时映射的数据源使用整个终端会话 raw buffer（`terminalRawBySession`），不要只用提交后的 active reply 增量；Codex TUI 的光标重绘依赖历史屏幕状态，单独增量会导致只能解析到重复 `Working`。合并逻辑还要避免“下一帧包含 busy 状态和回答正文时提前只更新状态并丢正文”。
 13. Codex 新界面现在优先读取同一终端会话的 xterm 已渲染 buffer 作为权威屏幕快照，再用当前用户输入锚点切出本轮输出；Codex 视图下会保留隐藏的 xterm host 作为同步数据源，但界面不显示任何终端内容。xterm 快照有内容时直接替换当前 assistant 气泡，避免最终回答出现后仍残留旧 `Working` 状态。
+14. Codex 聊天同步有真实浏览器 e2e 覆盖：`npm test` 会运行 `test/codexChat.e2e.mjs`，打开构建后的前端、mock Wails 终端会话、通过 Codex 输入框发送消息，并模拟 Codex CLI 先输出 `◦ Working` 再整屏重绘最终回答；测试要求聊天气泡实时更新为最终回答且不残留旧 `Working`。
