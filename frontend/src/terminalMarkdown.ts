@@ -134,12 +134,14 @@ export function terminalOutputHasCodexTurnEndPrompt(value: string, activePrompt 
 }
 
 function makePromptLineSet(activePrompt: string) {
-  return new Set(
-    activePrompt
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean),
-  );
+  const lines = activePrompt
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const normalizedLines = lines
+    .map(stripCodexInputPromptPrefix)
+    .filter(Boolean);
+  return new Set([...lines, ...normalizedLines]);
 }
 
 function terminalOutputToScreenText(value: string) {
@@ -718,5 +720,13 @@ function trimBlankEdges(value: string) {
 }
 
 function normalizePromptCompact(value: string) {
-  return value.replace(/\s+/g, "");
+  return value
+    .split(/\r?\n/)
+    .map((line) => stripCodexInputPromptPrefix(line.trim()))
+    .join("")
+    .replace(/\s+/g, "");
+}
+
+function stripCodexInputPromptPrefix(value: string) {
+  return value.replace(/^[>›]\s*/, "").trim();
 }

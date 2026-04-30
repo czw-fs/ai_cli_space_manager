@@ -163,6 +163,15 @@ assertEqual(
 
 assertEqual(
   terminalOutputToCodexTurnLiveText(
+    "› https://github.com/carlini/printf-tac-toe\n  帮我看看这个仓库是干什么的\n\n• Working (0s · esc to interrupt)",
+    "› https://github.com/carlini/printf-tac-toe\n帮我看看这个仓库是干什么的",
+  ),
+  "• Working (0s · esc to interrupt)",
+  "matches current prompts even when the chat bubble keeps the codex prompt glyph",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
     [
       "OpenAI Codex (v0.125.0)",
       "model: gpt-5.5 xhigh",

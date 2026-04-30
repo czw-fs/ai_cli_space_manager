@@ -135,6 +135,7 @@ async function setupWailsMocks(page) {
       createdAt: Date.now(),
     };
     const writes = [];
+    const writeEvents = [];
     const emit = (eventName, payload) => {
       for (const callback of listeners.get(eventName) ?? []) {
         callback(payload);
@@ -142,6 +143,7 @@ async function setupWailsMocks(page) {
     };
     window.__codexE2E = {
       writes,
+      writeEvents,
       emitTerminal(data) {
         emit("terminal:output", { sessionId, data, stream: "pty" });
       },
@@ -175,6 +177,7 @@ async function setupWailsMocks(page) {
           StartEmbeddedTerminal: async () => session,
           WriteTerminalInput: async (_sessionId, input) => {
             writes.push(input);
+            writeEvents.push({ input, at: Date.now() });
           },
           ResizeTerminal: async () => {},
           RenameTerminal: async () => session,
@@ -212,6 +215,13 @@ async function run() {
     await page.getByRole("button", { name: "发送" }).click();
 
     await page.waitForFunction(() => window.__codexE2E?.writes?.length >= 2);
+    const firstSubmitGap = await page.evaluate(() => {
+      const events = window.__codexE2E.writeEvents;
+      return events[1].at - events[0].at;
+    });
+    if (firstSubmitGap < 150) {
+      throw new Error(`Expected Codex submit to wait past paste-burst suppression, got ${firstSubmitGap}ms`);
+    }
     await page.evaluate(() => {
       window.__codexE2E.emitTerminal(
         [
@@ -366,9 +376,36 @@ async function run() {
       throw new Error(`Expected long Codex answer without terminal chrome, got: ${longFinalText}`);
     }
 
-    await page.locator(".codex-chat-input textarea").fill("复现滚动同步卡住");
+    await page.locator(".codex-chat-input textarea").fill("› https://github.com/carlini/printf-tac-toe\n帮我看看这个仓库是干什么的");
     await page.getByRole("button", { name: "发送" }).click();
     await page.waitForFunction(() => window.__codexE2E?.writes?.length >= 6);
+    await page.evaluate(() => {
+      window.__codexE2E.emitTerminal(
+        `\x1b[2J\x1b[H${[
+          "PS C:\\dev\\testproject\\aidefaultws> codex",
+          "OpenAI Codex (v0.125.0)",
+          "",
+          "› https://github.com/carlini/printf-tac-toe",
+          "  帮我看看这个仓库是干什么的",
+          "",
+          "• Working (0s · esc to interrupt)",
+          "",
+          "› Use /skills to list available skills",
+          "gpt-5.5 xhigh · C:\\dev\\testproject\\aidefaultws",
+          "",
+        ].join("\r\n")}`,
+      );
+    });
+    await page.waitForFunction(() => {
+      const outputs = [...document.querySelectorAll(".codex-message.assistant .codex-live-output")];
+      return outputs.some((element) => element.textContent?.includes("Working"));
+    }, undefined, { timeout: 5000 });
+    await page.keyboard.press("Control+C");
+    await page.waitForFunction(() => window.__codexE2E?.writes?.includes("\u0003"));
+
+    await page.locator(".codex-chat-input textarea").fill("复现滚动同步卡住");
+    await page.getByRole("button", { name: "发送" }).click();
+    await page.waitForFunction(() => window.__codexE2E?.writes?.length >= 9);
     await page.evaluate(() => {
       window.__codexE2E.emitTerminal(
         `\x1b[2J\x1b[H${[
@@ -389,10 +426,22 @@ async function run() {
       const outputs = [...document.querySelectorAll(".codex-message.assistant .codex-live-output")];
       return outputs.some((element) => element.textContent?.includes("Inspecting documentation pages"));
     });
+    const hiddenCursorDuringCodexSync = await page
+      .locator(".terminal-host-hidden .xterm")
+      .evaluate((element) => element.classList.contains("terminal-codex-busy"));
+    if (!hiddenCursorDuringCodexSync) {
+      throw new Error("Expected hidden xterm cursor to be suppressed while Codex is streaming");
+    }
 
     await page.getByLabel("终端视图切换").getByRole("button", { name: "终端" }).click();
     await page.locator(".terminal-host .xterm").click({ position: { x: 30, y: 30 } });
     await page.mouse.wheel(0, -600);
+    const cursorSuppressedDuringTerminalStreaming = await page
+      .locator(".terminal-host .xterm")
+      .evaluate((element) => element.classList.contains("terminal-codex-busy"));
+    if (!cursorSuppressedDuringTerminalStreaming) {
+      throw new Error("Expected visible terminal cursor to be suppressed while Codex is streaming");
+    }
     await page.keyboard.press("ArrowUp");
     await page.keyboard.press("ArrowDown");
     await page.evaluate(() => {
@@ -403,6 +452,12 @@ async function run() {
       .evaluate((element) => element.classList.contains("terminal-output-active"));
     if (cursorHiddenDuringTerminalInput) {
       throw new Error("Expected terminal cursor to stay visible after arrow-key input during Codex output");
+    }
+    const busyCursorClassDuringTerminalInput = await page
+      .locator(".terminal-host .xterm")
+      .evaluate((element) => element.classList.contains("terminal-codex-busy"));
+    if (busyCursorClassDuringTerminalInput) {
+      throw new Error("Expected terminal-codex-busy class to clear when the user returns to the real terminal");
     }
     await page.mouse.wheel(0, 600);
     await page.getByRole("button", { name: "Codex" }).click();

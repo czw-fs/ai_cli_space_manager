@@ -2,6 +2,8 @@ import {
   buildCodexInteractiveWrites,
   buildCodexPrompt,
   buildComposerWrites,
+  CODEX_INTERACTIVE_SUBMIT_DELAY_MS,
+  CODEX_EXECUTE_SEQUENCE,
   shouldSendComposerOnEnter,
   TERMINAL_ENTER,
 } from "../src/codexComposer";
@@ -45,9 +47,15 @@ assertArrayEqual(
 
 assertArrayEqual(
   buildCodexInteractiveWrites("执行任务", []),
-  ["\x1b[200~执行任务\x1b[201~", TERMINAL_ENTER],
-  "codex interactive writes paste then enter",
+  ["\x1b[200~执行任务\x1b[201~", CODEX_EXECUTE_SEQUENCE],
+  "codex interactive writes paste then codex execute sequence",
 );
+
+if (CODEX_INTERACTIVE_SUBMIT_DELAY_MS < 150) {
+  throw new Error(
+    `codex submit delay should outlive Codex TUI paste-burst newline suppression, got ${CODEX_INTERACTIVE_SUBMIT_DELAY_MS}`,
+  );
+}
 
 assertEqual(
   shouldSendComposerOnEnter({ key: "Enter", shiftKey: false, ctrlKey: false, metaKey: false }, "send"),

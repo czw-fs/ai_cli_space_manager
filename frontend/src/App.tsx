@@ -85,6 +85,7 @@ const SEARCH_MAX_WIDTH = 420;
 const CODEX_REPLY_RAW_BUFFER_LIMIT = 240000;
 const TERMINAL_SESSION_RAW_BUFFER_LIMIT = 800000;
 const CODEX_TURN_FINALIZE_IDLE_MS = 1200;
+const TERMINAL_INTERRUPT = "\x03";
 const normalizeTheme = (theme: string | undefined): UITheme => (theme === "light" ? "light" : "dark");
 
 const makeId = (prefix: string) =>
@@ -1151,11 +1152,14 @@ function readTerminalBufferText(handle: TerminalHandle) {
   return lines.join("\n");
 }
 
-function showTerminalCursor(handle: TerminalHandle | undefined) {
+function showTerminalCursor(handle: TerminalHandle | undefined, clearCodexBusy = true) {
   if (!handle) {
     return;
   }
   handle.terminal.element?.classList.remove("terminal-output-active");
+  if (clearCodexBusy) {
+    handle.terminal.element?.classList.remove("terminal-codex-busy");
+  }
 }
 
 function disposeTerminalHandle(handle: TerminalHandle | undefined) {
@@ -1218,6 +1222,7 @@ function TerminalPanel({
   const composer = activeSession ? composerBySession[activeSession.id] ?? { text: "", attachments: [] } : { text: "", attachments: [] };
   const codexComposer = activeSession ? codexComposerBySession[activeSession.id] ?? { text: "", attachments: [] } : { text: "", attachments: [] };
   const codexMessages = activeSession ? codexMessagesBySession[activeSession.id] ?? [] : [];
+  const codexStreaming = codexMessages.some((messageItem) => messageItem.role === "assistant" && messageItem.streaming);
   const [attachmentPathDraft, setAttachmentPathDraft] = useState(attachmentRootPath);
   const [attachmentPathEditing, setAttachmentPathEditing] = useState(false);
 
@@ -1323,19 +1328,58 @@ function TerminalPanel({
     if (view === "terminal" && activeSession && terminalRegistry.current[activeSession.id]) {
       window.setTimeout(() => {
         const handle = terminalRegistry.current[activeSession.id];
-        showTerminalCursor(handle);
+        showTerminalCursor(handle, false);
         handle?.terminal.focus();
       }, 0);
     }
   }, [activeSession?.id, terminalRegistry, view]);
 
+  useEffect(() => {
+    if (!activeSession) {
+      return;
+    }
+    const handle = terminalRegistry.current[activeSession.id];
+    if (!handle?.terminal.element) {
+      return;
+    }
+    const terminalElement = handle.terminal.element;
+    terminalElement.classList.toggle("terminal-codex-busy", codexStreaming);
+    return () => terminalElement.classList.remove("terminal-codex-busy");
+  }, [activeSession?.id, codexStreaming, terminalRegistry]);
+
   const focusActiveTerminal = () => {
     if (view === "terminal" && activeSession) {
       const handle = terminalRegistry.current[activeSession.id];
-      showTerminalCursor(handle);
+      showTerminalCursor(handle, false);
       handle?.terminal.focus();
     }
   };
+
+  const interruptCodexTurn = async () => {
+    if (!activeSession || !codexStreaming) {
+      return;
+    }
+    try {
+      await api.writeTerminalInput(activeSession.id, TERMINAL_INTERRUPT);
+    } catch (error) {
+      onInputError(error);
+    }
+  };
+
+  useEffect(() => {
+    if (view !== "codex" || !codexStreaming) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        event.stopPropagation();
+        void interruptCodexTurn();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [activeSession?.id, codexStreaming, view]);
 
   const updateComposer = (sessionId: string, next: ComposerState) => {
     onComposerChange((current) => ({ ...current, [sessionId]: next }));
@@ -1681,6 +1725,7 @@ function TerminalPanel({
           onComposerChange={updateCodexComposer}
           onRemoveAttachment={removeCodexAttachment}
           onSend={sendCodexComposer}
+          onInterrupt={interruptCodexTurn}
           onClearMessages={() => activeSession && onCodexMessagesClear(activeSession.id)}
           onInputError={onInputError}
         />
@@ -1699,6 +1744,7 @@ function CodexPanel({
   onComposerChange,
   onRemoveAttachment,
   onSend,
+  onInterrupt,
   onClearMessages,
   onInputError,
 }: {
@@ -1710,10 +1756,12 @@ function CodexPanel({
   onComposerChange: (sessionId: string, next: ComposerState) => void;
   onRemoveAttachment: (sessionId: string, attachmentId: string) => void;
   onSend: () => void;
+  onInterrupt: () => void;
   onClearMessages: () => void;
   onInputError: (error: unknown) => void;
 }) {
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const hasStreamingMessage = messages.some((messageItem) => messageItem.role === "assistant" && messageItem.streaming);
 
   useEffect(() => {
     const element = messageListRef.current;
@@ -1728,7 +1776,17 @@ function CodexPanel({
   }
 
   return (
-    <div className="codex-chat" onMouseDown={(event) => event.stopPropagation()}>
+    <div
+      className="codex-chat"
+      onMouseDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (hasStreamingMessage && event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "c") {
+          event.preventDefault();
+          event.stopPropagation();
+          onInterrupt();
+        }
+      }}
+    >
       <div className="codex-chat-messages" ref={messageListRef}>
         {messages.length === 0 ? (
           <div className="codex-chat-placeholder">
@@ -1796,6 +1854,12 @@ function CodexPanel({
             onPaste={onPaste}
             onChange={(event) => onComposerChange(activeSession.id, { ...composer, text: event.target.value })}
             onKeyDown={(event) => {
+              if (hasStreamingMessage && event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "c") {
+                event.preventDefault();
+                event.stopPropagation();
+                onInterrupt();
+                return;
+              }
               if (shouldSendComposerOnEnter(event, enterKeyMode)) {
                 event.preventDefault();
                 onSend();
