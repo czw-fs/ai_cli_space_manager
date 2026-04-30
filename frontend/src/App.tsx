@@ -36,6 +36,16 @@ import {
   terminalOutputToCodexScopedLiveText,
   terminalOutputToCodexTurnLiveText,
 } from "./terminalMarkdown";
+import {
+  buildPowerShellManagedCommand,
+  consumePowerShellTurnOutput,
+  createPowerShellTurnState,
+} from "./terminalChat";
+import type {
+  PowerShellTurnState,
+  TerminalChatMessage,
+  TerminalChatMode,
+} from "./terminalChat";
 import type {
   AppState,
   AttachmentFile,
@@ -68,12 +78,10 @@ type ComposerState = {
   attachments: AttachmentFile[];
 };
 
-type CodexChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  attachments?: AttachmentFile[];
-  streaming?: boolean;
+type ActivePowerShellTurn = {
+  turnId: string;
+  messageId: string;
+  state: PowerShellTurnState;
 };
 
 const DEFAULT_SIDEBAR_WIDTH = 176;
@@ -117,7 +125,8 @@ function App() {
   const [terminalRenameDraft, setTerminalRenameDraft] = useState("");
   const [composerBySession, setComposerBySession] = useState<Record<string, ComposerState>>({});
   const [codexComposerBySession, setCodexComposerBySession] = useState<Record<string, ComposerState>>({});
-  const [codexMessagesBySession, setCodexMessagesBySession] = useState<Record<string, CodexChatMessage[]>>({});
+  const [terminalChatMessagesBySession, setTerminalChatMessagesBySession] = useState<Record<string, TerminalChatMessage[]>>({});
+  const [terminalChatModeBySession, setTerminalChatModeBySession] = useState<Record<string, TerminalChatMode>>({});
   const [terminalView, setTerminalView] = useState<TerminalView>("terminal");
   const stateRef = useRef(state);
   const terminalRenameCanceled = useRef(false);
@@ -128,6 +137,7 @@ function App() {
   const activeCodexPromptBySession = useRef<Record<string, string>>({});
   const activeCodexReplyRawBySession = useRef<Record<string, string>>({});
   const activeCodexFinalizeTimerBySession = useRef<Record<string, number>>({});
+  const activePowerShellTurnBySession = useRef<Record<string, ActivePowerShellTurn>>({});
 
   const applyState = (next: AppState) => {
     stateRef.current = next;
@@ -167,7 +177,7 @@ function App() {
           : "";
       const replyText = anchoredReplyText || activeRawReplyText;
       const replyIsAuthoritativeScreen = sourceIsScreenSnapshot && Boolean(anchoredReplyText);
-      setCodexMessagesBySession((current) => {
+      setTerminalChatMessagesBySession((current) => {
         const messages = current[sessionId] ?? [];
         if (!messages.some((messageItem) => messageItem.id === activeReplyId)) {
           return current;
@@ -194,10 +204,12 @@ function App() {
           if (activeCodexReplyIdBySession.current[sessionId] !== activeReplyId) {
             return;
           }
-          setCodexMessagesBySession((current) => ({
+          setTerminalChatMessagesBySession((current) => ({
             ...current,
             [sessionId]: (current[sessionId] ?? []).map((messageItem) =>
-              messageItem.id === activeReplyId ? { ...messageItem, streaming: false } : messageItem,
+              messageItem.id === activeReplyId
+                ? { ...messageItem, status: "completed", endedAt: Date.now() }
+                : messageItem,
             ),
           }));
           delete activeCodexReplyIdBySession.current[sessionId];
@@ -234,6 +246,27 @@ function App() {
             ? rawOutput.slice(rawOutput.length - CODEX_REPLY_RAW_BUFFER_LIMIT)
             : rawOutput;
       }
+      const activePowerShellTurn = activePowerShellTurnBySession.current[event.sessionId];
+      if (activePowerShellTurn) {
+        const patch = consumePowerShellTurnOutput(activePowerShellTurn.state, event.data);
+        setTerminalChatMessagesBySession((current) => ({
+          ...current,
+          [event.sessionId]: (current[event.sessionId] ?? []).map((messageItem) =>
+            messageItem.id === activePowerShellTurn.messageId
+              ? {
+                  ...messageItem,
+                  content: patch.content,
+                  status: patch.status,
+                  exitCode: patch.exitCode,
+                  endedAt: patch.status === "running" ? undefined : Date.now(),
+                }
+              : messageItem,
+          ),
+        }));
+        if (patch.status !== "running") {
+          delete activePowerShellTurnBySession.current[event.sessionId];
+        }
+      }
       const handle = terminalInstances.current[event.sessionId];
       if (handle) {
         writeTerminalOutputPinned(handle, event.data, Boolean(activeReplyId), () =>
@@ -253,6 +286,7 @@ function App() {
       delete activeCodexReplyIdBySession.current[session.id];
       delete activeCodexPromptBySession.current[session.id];
       delete activeCodexReplyRawBySession.current[session.id];
+      delete activePowerShellTurnBySession.current[session.id];
       clearCodexFinalizeTimer(session.id);
     });
     return () => {
@@ -512,7 +546,12 @@ function App() {
         delete next[sessionId];
         return next;
       });
-      setCodexMessagesBySession((current) => {
+      setTerminalChatMessagesBySession((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+      setTerminalChatModeBySession((current) => {
         const next = { ...current };
         delete next[sessionId];
         return next;
@@ -520,6 +559,7 @@ function App() {
       delete activeCodexReplyIdBySession.current[sessionId];
       delete activeCodexPromptBySession.current[sessionId];
       delete activeCodexReplyRawBySession.current[sessionId];
+      delete activePowerShellTurnBySession.current[sessionId];
       disposeTerminalHandle(terminalInstances.current[sessionId]);
       delete terminalInstances.current[sessionId];
       delete pendingTerminalOutput.current[sessionId];
@@ -845,9 +885,11 @@ function App() {
               onComposerHeightChange={updateComposerHeight}
               onComposerHeightCommit={persistComposerHeight}
               view={terminalView}
-              codexMessagesBySession={codexMessagesBySession}
+              terminalChatMessagesBySession={terminalChatMessagesBySession}
+              terminalChatModeBySession={terminalChatModeBySession}
               codexComposerBySession={codexComposerBySession}
-              onCodexMessagesChange={setCodexMessagesBySession}
+              onTerminalChatMessagesChange={setTerminalChatMessagesBySession}
+              onTerminalChatModeChange={setTerminalChatModeBySession}
               onCodexComposerChange={setCodexComposerBySession}
               onCodexScreenSnapshot={(sessionId, screenText) => syncCodexReplyFromSource(sessionId, screenText, true)}
               onCodexReplyStart={(sessionId, replyId, prompt) => {
@@ -861,7 +903,18 @@ function App() {
                 delete activeCodexReplyIdBySession.current[sessionId];
                 delete activeCodexPromptBySession.current[sessionId];
                 delete activeCodexReplyRawBySession.current[sessionId];
-                setCodexMessagesBySession((current) => ({ ...current, [sessionId]: [] }));
+                delete activePowerShellTurnBySession.current[sessionId];
+                setTerminalChatMessagesBySession((current) => ({ ...current, [sessionId]: [] }));
+              }}
+              onActiveChatTurnInterrupt={(sessionId) => {
+                clearCodexFinalizeTimer(sessionId);
+                delete activeCodexReplyIdBySession.current[sessionId];
+                delete activeCodexPromptBySession.current[sessionId];
+                delete activeCodexReplyRawBySession.current[sessionId];
+                delete activePowerShellTurnBySession.current[sessionId];
+              }}
+              onPowerShellTurnStart={(sessionId, turn) => {
+                activePowerShellTurnBySession.current[sessionId] = turn;
               }}
             />
           )}
@@ -1203,13 +1256,17 @@ function TerminalPanel({
   onComposerHeightChange,
   onComposerHeightCommit,
   view,
-  codexMessagesBySession,
+  terminalChatMessagesBySession,
+  terminalChatModeBySession,
   codexComposerBySession,
-  onCodexMessagesChange,
+  onTerminalChatMessagesChange,
+  onTerminalChatModeChange,
   onCodexComposerChange,
   onCodexScreenSnapshot,
   onCodexReplyStart,
   onCodexMessagesClear,
+  onActiveChatTurnInterrupt,
+  onPowerShellTurnStart,
 }: {
   sessions: TerminalSession[];
   activeId: string;
@@ -1226,21 +1283,27 @@ function TerminalPanel({
   onComposerHeightChange: (height: number) => void;
   onComposerHeightCommit: (height: number) => void;
   view: TerminalView;
-  codexMessagesBySession: Record<string, CodexChatMessage[]>;
+  terminalChatMessagesBySession: Record<string, TerminalChatMessage[]>;
+  terminalChatModeBySession: Record<string, TerminalChatMode>;
   codexComposerBySession: Record<string, ComposerState>;
-  onCodexMessagesChange: (value: SetStateAction<Record<string, CodexChatMessage[]>>) => void;
+  onTerminalChatMessagesChange: (value: SetStateAction<Record<string, TerminalChatMessage[]>>) => void;
+  onTerminalChatModeChange: (value: SetStateAction<Record<string, TerminalChatMode>>) => void;
   onCodexComposerChange: (value: SetStateAction<Record<string, ComposerState>>) => void;
   onCodexScreenSnapshot: (sessionId: string, screenText: string) => void;
   onCodexReplyStart: (sessionId: string, replyId: string, prompt: string) => void;
   onCodexMessagesClear: (sessionId: string) => void;
+  onActiveChatTurnInterrupt: (sessionId: string) => void;
+  onPowerShellTurnStart: (sessionId: string, turn: ActivePowerShellTurn) => void;
 }) {
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const onInputErrorRef = useRef(onInputError);
   const activeSession = sessions.find((session) => session.id === activeId) ?? sessions[sessions.length - 1];
   const composer = activeSession ? composerBySession[activeSession.id] ?? { text: "", attachments: [] } : { text: "", attachments: [] };
   const codexComposer = activeSession ? codexComposerBySession[activeSession.id] ?? { text: "", attachments: [] } : { text: "", attachments: [] };
-  const codexMessages = activeSession ? codexMessagesBySession[activeSession.id] ?? [] : [];
-  const codexStreaming = codexMessages.some((messageItem) => messageItem.role === "assistant" && messageItem.streaming);
+  const terminalChatMode = activeSession ? terminalChatModeBySession[activeSession.id] ?? "codex" : "codex";
+  const terminalChatMessages = activeSession ? terminalChatMessagesBySession[activeSession.id] ?? [] : [];
+  const codexStreaming = terminalChatMessages.some((messageItem) => messageItem.kind === "codex" && messageItem.role === "system" && messageItem.status === "running");
+  const powerShellRunning = terminalChatMessages.some((messageItem) => messageItem.kind === "powershell" && messageItem.role === "system" && messageItem.status === "running");
   const codexStreamingRef = useRef(codexStreaming);
   const [attachmentPathDraft, setAttachmentPathDraft] = useState(attachmentRootPath);
   const [attachmentPathEditing, setAttachmentPathEditing] = useState(false);
@@ -1380,31 +1443,45 @@ function TerminalPanel({
     }
   };
 
-  const interruptCodexTurn = async () => {
-    if (!activeSession || !codexStreaming) {
+  const interruptActiveChatTurn = async () => {
+    if (!activeSession || (!codexStreaming && !powerShellRunning)) {
       return;
     }
     try {
       await api.writeTerminalInput(activeSession.id, TERMINAL_INTERRUPT);
+      onActiveChatTurnInterrupt(activeSession.id);
+      const interruptedAt = Date.now();
+      onTerminalChatMessagesChange((current) => ({
+        ...current,
+        [activeSession.id]: (current[activeSession.id] ?? []).map((messageItem) =>
+          messageItem.role === "system" && messageItem.status === "running"
+            ? {
+                ...messageItem,
+                status: "interrupted",
+                endedAt: interruptedAt,
+              }
+            : messageItem,
+        ),
+      }));
     } catch (error) {
       onInputError(error);
     }
   };
 
   useEffect(() => {
-    if (view !== "codex" || !codexStreaming) {
+    if (view !== "codex" || (!codexStreaming && !powerShellRunning)) {
       return;
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "c") {
         event.preventDefault();
         event.stopPropagation();
-        void interruptCodexTurn();
+        void interruptActiveChatTurn();
       }
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [activeSession?.id, codexStreaming, view]);
+  }, [activeSession?.id, codexStreaming, powerShellRunning, view]);
 
   const updateComposer = (sessionId: string, next: ComposerState) => {
     onComposerChange((current) => ({ ...current, [sessionId]: next }));
@@ -1414,8 +1491,12 @@ function TerminalPanel({
     onCodexComposerChange((current) => ({ ...current, [sessionId]: next }));
   };
 
-  const appendCodexMessages = (sessionId: string, messages: CodexChatMessage[]) => {
-    onCodexMessagesChange((current) => ({
+  const updateTerminalChatMode = (sessionId: string, mode: TerminalChatMode) => {
+    onTerminalChatModeChange((current) => ({ ...current, [sessionId]: mode }));
+  };
+
+  const appendTerminalChatMessages = (sessionId: string, messages: TerminalChatMessage[]) => {
+    onTerminalChatMessagesChange((current) => ({
       ...current,
       [sessionId]: [...(current[sessionId] ?? []), ...messages],
     }));
@@ -1557,20 +1638,32 @@ function TerminalPanel({
     if (!activeSession || (!codexComposer.text.trim() && codexComposer.attachments.length === 0)) {
       return;
     }
-    const userMessage: CodexChatMessage = {
-      id: makeId("codex-user"),
+    const turnId = makeId("codex-turn");
+    const startedAt = Date.now();
+    const userMessage: TerminalChatMessage = {
+      id: makeId("chat-user"),
+      sessionId: activeSession.id,
+      turnId,
       role: "user",
+      kind: "codex",
       content: codexComposer.text.trim(),
       attachments: codexComposer.attachments,
+      status: "completed",
+      startedAt,
+      endedAt: startedAt,
     };
-    const assistantMessage: CodexChatMessage = {
-      id: makeId("codex-assistant"),
-      role: "assistant",
+    const assistantMessage: TerminalChatMessage = {
+      id: makeId("chat-system"),
+      sessionId: activeSession.id,
+      turnId,
+      role: "system",
+      kind: "codex",
       content: "",
-      streaming: true,
+      status: "running",
+      startedAt,
     };
     try {
-      appendCodexMessages(activeSession.id, [userMessage, assistantMessage]);
+      appendTerminalChatMessages(activeSession.id, [userMessage, assistantMessage]);
       const prompt = buildCodexPrompt(codexComposer.text, codexComposer.attachments);
       const writes = buildCodexInteractiveWrites(codexComposer.text, codexComposer.attachments);
       await api.writeTerminalInput(activeSession.id, writes[0]);
@@ -1581,16 +1674,73 @@ function TerminalPanel({
       }
       updateCodexComposer(activeSession.id, { text: "", attachments: [] });
     } catch (error) {
-      onCodexMessagesChange((current) => ({
+      onTerminalChatMessagesChange((current) => ({
         ...current,
         [activeSession.id]: (current[activeSession.id] ?? []).map((messageItem) =>
           messageItem.id === assistantMessage.id
-            ? { ...messageItem, content: `发送失败：${String(error)}`, streaming: false }
+            ? { ...messageItem, content: `发送失败：${String(error)}`, status: "failed", endedAt: Date.now() }
             : messageItem,
         ),
       }));
       onInputError(error);
     }
+  };
+
+  const sendPowerShellComposer = async () => {
+    if (!activeSession || !codexComposer.text.trim()) {
+      return;
+    }
+    const turnId = makeId("ps-turn");
+    const startedAt = Date.now();
+    const userMessage: TerminalChatMessage = {
+      id: makeId("chat-user"),
+      sessionId: activeSession.id,
+      turnId,
+      role: "user",
+      kind: "powershell",
+      content: codexComposer.text.trim(),
+      status: "completed",
+      startedAt,
+      endedAt: startedAt,
+    };
+    const systemMessage: TerminalChatMessage = {
+      id: makeId("chat-system"),
+      sessionId: activeSession.id,
+      turnId,
+      role: "system",
+      kind: "powershell",
+      content: "",
+      status: "running",
+      startedAt,
+    };
+    try {
+      appendTerminalChatMessages(activeSession.id, [userMessage, systemMessage]);
+      onPowerShellTurnStart(activeSession.id, {
+        turnId,
+        messageId: systemMessage.id,
+        state: createPowerShellTurnState(turnId),
+      });
+      await api.writeTerminalInput(activeSession.id, buildPowerShellManagedCommand(codexComposer.text, turnId));
+      updateCodexComposer(activeSession.id, { text: "", attachments: [] });
+    } catch (error) {
+      onTerminalChatMessagesChange((current) => ({
+        ...current,
+        [activeSession.id]: (current[activeSession.id] ?? []).map((messageItem) =>
+          messageItem.id === systemMessage.id
+            ? { ...messageItem, content: `发送失败：${String(error)}`, status: "failed", endedAt: Date.now() }
+            : messageItem,
+        ),
+      }));
+      onInputError(error);
+    }
+  };
+
+  const sendTerminalChatComposer = () => {
+    if (terminalChatMode === "powershell") {
+      void sendPowerShellComposer();
+      return;
+    }
+    void sendCodexComposer();
   };
 
   const commitAttachmentRootPath = () => {
@@ -1743,13 +1893,15 @@ function TerminalPanel({
       ) : (
         <CodexPanel
           activeSession={activeSession}
-          messages={codexMessages}
+          messages={terminalChatMessages}
+          mode={terminalChatMode}
           composer={codexComposer}
           onPaste={handleCodexComposerPaste}
           onComposerChange={updateCodexComposer}
+          onModeChange={updateTerminalChatMode}
           onRemoveAttachment={removeCodexAttachment}
-          onSend={sendCodexComposer}
-          onInterrupt={interruptCodexTurn}
+          onSend={sendTerminalChatComposer}
+          onInterrupt={interruptActiveChatTurn}
           onClearMessages={() => activeSession && onCodexMessagesClear(activeSession.id)}
           onInputError={onInputError}
         />
@@ -1762,9 +1914,11 @@ function TerminalPanel({
 function CodexPanel({
   activeSession,
   messages,
+  mode,
   composer,
   onPaste,
   onComposerChange,
+  onModeChange,
   onRemoveAttachment,
   onSend,
   onInterrupt,
@@ -1772,10 +1926,12 @@ function CodexPanel({
   onInputError,
 }: {
   activeSession: TerminalSession | undefined;
-  messages: CodexChatMessage[];
+  messages: TerminalChatMessage[];
+  mode: TerminalChatMode;
   composer: ComposerState;
   onPaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void;
   onComposerChange: (sessionId: string, next: ComposerState) => void;
+  onModeChange: (sessionId: string, mode: TerminalChatMode) => void;
   onRemoveAttachment: (sessionId: string, attachmentId: string) => void;
   onSend: () => void;
   onInterrupt: () => void;
@@ -1783,7 +1939,7 @@ function CodexPanel({
   onInputError: (error: unknown) => void;
 }) {
   const messageListRef = useRef<HTMLDivElement | null>(null);
-  const hasStreamingMessage = messages.some((messageItem) => messageItem.role === "assistant" && messageItem.streaming);
+  const hasStreamingMessage = messages.some((messageItem) => messageItem.role === "system" && messageItem.status === "running");
 
   useEffect(() => {
     const element = messageListRef.current;
@@ -1814,13 +1970,13 @@ function CodexPanel({
           <div className="codex-chat-placeholder">
             <div className="codex-placeholder-mark">CX</div>
             <div>
-              <strong>Codex 控制台</strong>
-              <span>发送消息后，回复会在这里展开</span>
+              <strong>终端聊天</strong>
+              <span>PowerShell 和 Codex 输出会按回合显示</span>
             </div>
           </div>
         ) : (
           messages.map((messageItem) => {
-            if (messageItem.role === "assistant" && !messageItem.content && !messageItem.attachments?.length) {
+            if (messageItem.role === "system" && !messageItem.content && !messageItem.attachments?.length) {
               return null;
             }
             return (
@@ -1830,12 +1986,18 @@ function CodexPanel({
               >
                 <div className="codex-message-bubble">
                   {messageItem.content ? (
-                    messageItem.role === "assistant" ? (
+                    messageItem.role === "system" ? (
                       <pre className="codex-live-output">{messageItem.content}</pre>
                     ) : (
                       <p>{messageItem.content}</p>
                     )
                   ) : null}
+                  {messageItem.role === "system" && messageItem.kind === "powershell" && messageItem.status !== "running" && (
+                    <div className={`terminal-chat-meta ${messageItem.status}`}>
+                      <span>{messageItem.status === "completed" ? "完成" : messageItem.status === "interrupted" ? "已中断" : "失败"}</span>
+                      {typeof messageItem.exitCode === "number" && <span>退出码 {messageItem.exitCode}</span>}
+                    </div>
+                  )}
                 {messageItem.attachments && messageItem.attachments.length > 0 && (
                   <div className="codex-message-attachments">
                     {messageItem.attachments.map((attachment) => (
@@ -1857,6 +2019,22 @@ function CodexPanel({
         )}
       </div>
       <div className="codex-chat-input">
+        <div className="terminal-chat-mode-toggle" aria-label="聊天模式">
+          <button
+            type="button"
+            className={mode === "powershell" ? "active" : ""}
+            onClick={() => onModeChange(activeSession.id, "powershell")}
+          >
+            PowerShell
+          </button>
+          <button
+            type="button"
+            className={mode === "codex" ? "active" : ""}
+            onClick={() => onModeChange(activeSession.id, "codex")}
+          >
+            Codex
+          </button>
+        </div>
         {composer.attachments.length > 0 && (
           <div className="codex-chat-attachments">
             {composer.attachments.map((attachment) => (
@@ -1872,7 +2050,7 @@ function CodexPanel({
           <textarea
             value={composer.text}
             disabled={!activeSession.running}
-            placeholder="发送消息给 Codex"
+            placeholder={mode === "powershell" ? "输入 PowerShell 命令" : "发送消息给 Codex"}
             onPaste={onPaste}
             onChange={(event) => onComposerChange(activeSession.id, { ...composer, text: event.target.value })}
             onKeyDown={(event) => {
@@ -1895,7 +2073,7 @@ function CodexPanel({
             onClick={onSend}
             title="发送"
           >
-            发送
+            {mode === "powershell" ? "执行" : "发送"}
           </button>
         </div>
         <div className="codex-chat-actions">

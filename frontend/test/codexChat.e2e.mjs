@@ -201,13 +201,39 @@ async function setupWailsMocks(page) {
 
 async function sendCodexPromptWithEnter(page, prompt, expectedWriteCount) {
   const input = page.locator(".codex-chat-input textarea");
+  const startCount = await page.evaluate(() => window.__codexE2E?.writes?.length ?? 0);
   await input.fill(prompt);
   await page.keyboard.press("Enter");
   await page.waitForFunction(
-    (count) => window.__codexE2E?.writes?.length >= count,
-    expectedWriteCount,
+    ({ start, expected }) => window.__codexE2E?.writes?.length >= Math.max(start + 2, expected),
+    { start: startCount, expected: expectedWriteCount },
     { timeout: 5000 },
   );
+}
+
+async function sendTerminalChatInputWithEnter(page, text, expectedWriteCount) {
+  const input = page.locator(".codex-chat-input textarea");
+  const startCount = await page.evaluate(() => window.__codexE2E?.writes?.length ?? 0);
+  await input.fill(text);
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    ({ start, expected }) => window.__codexE2E?.writes?.length >= Math.max(start + 1, expected),
+    { start: startCount, expected: expectedWriteCount },
+    { timeout: 5000 },
+  );
+}
+
+function managedPowerShellOutput(turnId, content, exitCode = 0) {
+  return `\x1b]633;OWPS_START:${turnId}\x07${content}\x1b]633;OWPS_END:${turnId}:${exitCode}\x07`;
+}
+
+async function latestPowerShellTurnId(page) {
+  return page.evaluate(() => {
+    const writes = window.__codexE2E.writes ?? [];
+    const lastWrite = [...writes].reverse().find((value) => value.includes("OWPS_START:")) ?? "";
+    const match = /OWPS_START:([^$"\s]+)\$__owps_bel/.exec(lastWrite);
+    return match?.[1] ?? "";
+  });
 }
 
 const terminalStressStatuses = [
@@ -324,26 +350,86 @@ async function run() {
     await setupWailsMocks(page);
     await page.goto(BASE_URL);
 
-    await page.getByRole("button", { name: "终端", exact: true }).click();
-    await page.getByRole("button", { name: "Codex" }).click();
+    await page.getByRole("button", { name: "内嵌终端" }).click();
+    await page.waitForSelector("[aria-label='终端视图切换']");
+    await page.getByLabel("终端视图切换").getByRole("button", { name: "终端", exact: true }).click();
+    await page.getByLabel("终端视图切换").getByRole("button", { name: "Codex" }).click();
+    await page.getByLabel("聊天模式").getByRole("button", { name: "PowerShell" }).click();
+    await sendTerminalChatInputWithEnter(page, "Write-Output 'hello from powershell'", 1);
+    const firstPowerShellWrite = await page.evaluate(() => window.__codexE2E.writes[0]);
+    if (!/OWPS_START:ps-turn-/.test(firstPowerShellWrite) || !/Invoke-Expression 'Write-Output ''hello from powershell'''/.test(firstPowerShellWrite)) {
+      throw new Error(`Expected PowerShell chat mode to send a managed marker command, got: ${firstPowerShellWrite}`);
+    }
+    const firstPowerShellTurnId = await latestPowerShellTurnId(page);
+    if (!firstPowerShellTurnId) {
+      throw new Error(`Expected managed PowerShell write to expose a turn id, got: ${firstPowerShellWrite}`);
+    }
+    await page.evaluate((output) => {
+      window.__codexE2E.emitTerminal(output);
+    }, `PS C:\\dev\\testproject\\aidefaultws> ${managedPowerShellOutput(firstPowerShellTurnId, "\r\nhello from powershell\r\n", 0)}PS C:\\dev\\testproject\\aidefaultws> `);
+    await page.waitForFunction(() => {
+      const outputs = [...document.querySelectorAll(".codex-message.assistant .codex-live-output")];
+      return outputs.some((element) => element.textContent?.includes("hello from powershell"));
+    }, undefined, { timeout: 5000 });
+    const powerShellText = await page.locator(".codex-message.assistant .codex-live-output").last().textContent();
+    if (!powerShellText?.includes("hello from powershell")) {
+      throw new Error(`Expected PowerShell output in chat, got: ${powerShellText}`);
+    }
+    if (/OWPS_|PS C:\\/.test(powerShellText)) {
+      throw new Error(`Expected PowerShell marker and prompt to stay out of chat, got: ${powerShellText}`);
+    }
+    const completedMeta = await page.locator(".terminal-chat-meta.completed").last().textContent();
+    if (!completedMeta?.includes("退出码 0")) {
+      throw new Error(`Expected completed PowerShell metadata with exit code 0, got: ${completedMeta}`);
+    }
+
+    await sendTerminalChatInputWithEnter(page, "bad-native-command", 2);
+    const failedTurnId = await latestPowerShellTurnId(page);
+    await page.evaluate((output) => {
+      window.__codexE2E.emitTerminal(output);
+    }, managedPowerShellOutput(failedTurnId, "bad-native-command: The term 'bad-native-command' is not recognized\r\n", 9009));
+    await page.waitForFunction(() => {
+      const meta = [...document.querySelectorAll(".terminal-chat-meta.failed")];
+      return meta.some((element) => element.textContent?.includes("退出码 9009"));
+    }, undefined, { timeout: 5000 });
+
+    await sendTerminalChatInputWithEnter(page, "Start-Sleep -Seconds 30", 3);
+    const runningTurnId = await latestPowerShellTurnId(page);
+    await page.evaluate(({ turnId }) => {
+      window.__codexE2E.emitTerminal(`\x1b]633;OWPS_START:${turnId}\x07still running\r\n`);
+    }, { turnId: runningTurnId });
+    await page.waitForFunction(() => {
+      const outputs = [...document.querySelectorAll(".codex-message.assistant .codex-live-output")];
+      return outputs.some((element) => element.textContent?.includes("still running"));
+    }, undefined, { timeout: 5000 });
+    await page.keyboard.press("Control+C");
+    await page.waitForFunction(() => window.__codexE2E?.writes?.includes("\u0003"));
+    const interruptedMeta = await page.locator(".terminal-chat-meta.interrupted").last().textContent();
+    if (!interruptedMeta?.includes("已中断")) {
+      throw new Error(`Expected PowerShell Ctrl+C to mark the active turn interrupted, got: ${interruptedMeta}`);
+    }
+
+    await page.getByLabel("聊天模式").getByRole("button", { name: "Codex" }).click();
     const codexInput = page.locator(".codex-chat-input textarea");
+    const writesBeforeShiftEnter = await page.evaluate(() => window.__codexE2E.writes.length);
     await codexInput.fill("hello");
     await page.keyboard.press("Shift+Enter");
     await wait(250);
     const writesAfterShiftEnter = await page.evaluate(() => window.__codexE2E.writes.length);
-    if (writesAfterShiftEnter !== 0) {
-      throw new Error(`Expected Shift+Enter to insert a newline without sending, got writes: ${writesAfterShiftEnter}`);
+    if (writesAfterShiftEnter !== writesBeforeShiftEnter) {
+      throw new Error(`Expected Shift+Enter to insert a newline without sending, got writes: ${writesAfterShiftEnter - writesBeforeShiftEnter}`);
     }
     const shiftEnterValue = await codexInput.inputValue();
     if (shiftEnterValue !== "hello\n") {
       throw new Error(`Expected Shift+Enter to keep a newline in Codex input, got: ${JSON.stringify(shiftEnterValue)}`);
     }
+    const writeEventsBeforeFirstCodexSubmit = await page.evaluate(() => window.__codexE2E.writeEvents.length);
     await sendCodexPromptWithEnter(page, "hello", 2);
 
-    const firstSubmitGap = await page.evaluate(() => {
+    const firstSubmitGap = await page.evaluate((startIndex) => {
       const events = window.__codexE2E.writeEvents;
-      return events[1].at - events[0].at;
-    });
+      return events[startIndex + 1].at - events[startIndex].at;
+    }, writeEventsBeforeFirstCodexSubmit);
     if (firstSubmitGap < 150) {
       throw new Error(`Expected Codex submit to wait past paste-burst suppression, got ${firstSubmitGap}ms`);
     }
@@ -536,7 +622,7 @@ async function run() {
     if (!terminalAfterStress.includes("terminal-stress-frame-50")) {
       throw new Error(`Expected terminal stress test to end on frame 50, got: ${terminalAfterStress}`);
     }
-    await page.getByRole("button", { name: "Codex" }).click();
+    await page.getByLabel("终端视图切换").getByRole("button", { name: "Codex" }).click();
 
     await page.keyboard.press("Control+C");
     await page.waitForFunction(() => window.__codexE2E?.writes?.includes("\u0003"));
@@ -596,7 +682,7 @@ async function run() {
       throw new Error("Expected terminal-codex-busy class to remain while Codex is still streaming, even after arrow-key input");
     }
     await page.mouse.wheel(0, 600);
-    await page.getByRole("button", { name: "Codex" }).click();
+    await page.getByLabel("终端视图切换").getByRole("button", { name: "Codex" }).click();
     await wait(1500);
 
     await page.evaluate(() => {

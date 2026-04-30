@@ -1009,6 +1009,32 @@ body.resizing-sidebar * {
     inset 0 1px 0 rgba(255, 255, 255, .04);
 }
 
+.terminal-chat-mode-toggle {
+  width: fit-content;
+  min-width: 0;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(125, 211, 252, .18);
+  border-radius: 8px;
+  background: #0f1726;
+}
+
+.terminal-chat-mode-toggle button {
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #9fb2ca;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.terminal-chat-mode-toggle button.active {
+  background: #1e3a5f;
+  color: #eff6ff;
+}
+
 .codex-chat-input-row {
   min-width: 0;
   display: grid;
@@ -1078,6 +1104,25 @@ body.resizing-sidebar * {
 
 .codex-chat-actions button {
   height: 26px;
+}
+
+.terminal-chat-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  border-top: 1px solid rgba(125, 211, 252, .12);
+  padding-top: 8px;
+  color: #8fa4c2;
+  font-size: 12px;
+}
+
+.terminal-chat-meta.failed {
+  color: #fca5a5;
+}
+
+.terminal-chat-meta.interrupted {
+  color: #fde68a;
 }
 
 .markdown-body {
@@ -2269,6 +2314,7 @@ body.resizing-sidebar .theme-light .sidebar-resize-handle::after {
 .theme-light .enter-mode-toggle button,
 .theme-light .attachment-chip button,
 .theme-light .composer-actions button,
+.theme-light .terminal-chat-mode-toggle button,
 .theme-light .codex-chat-attachment,
 .theme-light .codex-chat-attachment button,
 .theme-light .codex-chat-actions button,
@@ -2279,6 +2325,7 @@ body.resizing-sidebar .theme-light .sidebar-resize-handle::after {
 }
 
 .theme-light .enter-mode-toggle,
+.theme-light .terminal-chat-mode-toggle,
 .theme-light .attachment-chip {
   border-color: #cdd9e7;
   background: #ffffff;
@@ -2286,10 +2333,24 @@ body.resizing-sidebar .theme-light .sidebar-resize-handle::after {
 }
 
 .theme-light .enter-mode-toggle button.active,
+.theme-light .terminal-chat-mode-toggle button.active,
 .theme-light .composer-actions .composer-send {
   border-color: #2563eb;
   background: linear-gradient(135deg, #2563eb, #0891b2);
   color: #fff;
+}
+
+.theme-light .terminal-chat-meta {
+  border-top-color: #d7e1ed;
+  color: #64748b;
+}
+
+.theme-light .terminal-chat-meta.failed {
+  color: #b91c1c;
+}
+
+.theme-light .terminal-chat-meta.interrupted {
+  color: #92400e;
 }
 
 .theme-light .codex-chat-input-row textarea {

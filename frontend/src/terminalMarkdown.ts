@@ -145,7 +145,7 @@ function makePromptLineSet(activePrompt: string) {
   return new Set([...lines, ...normalizedLines]);
 }
 
-function terminalOutputToScreenText(value: string) {
+export function terminalOutputToScreenText(value: string) {
   const lines: string[][] = [[]];
   const cursor: CursorState = {
     row: 0,
