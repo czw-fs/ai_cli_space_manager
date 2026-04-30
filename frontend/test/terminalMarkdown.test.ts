@@ -444,8 +444,8 @@ assertEqual(
     "• Working (1s · esc to interrupt)",
     "• Thinking\n\n我会先检查项目结构。",
   ),
-  "• Working (1s · esc to interrupt)\n• Thinking\n\n我会先检查项目结构。",
-  "appends later codex thinking output after the live status",
+  "• Thinking\n\n我会先检查项目结构。",
+  "replaces stale live status when the current terminal screen advances to thinking output",
 );
 
 assertEqual(

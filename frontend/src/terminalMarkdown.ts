@@ -62,11 +62,22 @@ export function terminalOutputToCodexTurnLiveText(value: string, activePrompt = 
   const promptLines = makePromptLineSet(activePrompt);
   const screenLines = terminalOutputToScreenText(value).split("\n");
   const currentTurnLines = sliceCodexCurrentTurnLines(screenLines, activePrompt, true);
-  const boundedLines = truncateAtNextCodexInputPrompt(currentTurnLines, promptLines);
   return trimBlankEdges(
-    boundedLines
-      .filter((line) => !isCodexLiveChromeLine(line, promptLines))
-      .join("\n"),
+    currentTurnLines
+      .filter((line, index) => !isCodexTurnChromeLine(line, promptLines, currentTurnLines, index))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n"),
+  );
+}
+
+export function terminalOutputToCodexScopedLiveText(value: string, activePrompt = "") {
+  const promptLines = makePromptLineSet(activePrompt);
+  const screenLines = terminalOutputToScreenText(value).split("\n");
+  return trimBlankEdges(
+    screenLines
+      .filter((line, index) => !isCodexTurnChromeLine(line, promptLines, screenLines, index))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n"),
   );
 }
 
@@ -79,7 +90,7 @@ export function mergeCodexTurnLiveText(current: string, nextSnapshot: string) {
   if (!currentText) {
     return nextText;
   }
-  if (containsOnlyBusyStatus(currentText) && !startsWithBusyStatus(nextText) && containsFinalAnswerContent(nextText)) {
+  if (containsOnlyBusyStatus(currentText) && containsFinalAnswerContent(nextText)) {
     return nextText;
   }
   const currentOnlyStatusReplaced = replaceOnlyStatusWithExpandedSnapshot(currentText, nextText);
@@ -115,23 +126,12 @@ export function terminalOutputHasCodexInputPrompt(value: string) {
 export function terminalOutputHasCodexTurnEndPrompt(value: string, activePrompt = "") {
   const promptLines = makePromptLineSet(activePrompt);
   const currentTurnLines = sliceCodexCurrentTurnLines(terminalOutputToScreenText(value).split("\n"), activePrompt, true);
-  let hasMappedContent = false;
-  let lastMappedLineWasBusyStatus = false;
-  for (let index = 0; index < currentTurnLines.length; index += 1) {
-    const line = currentTurnLines[index];
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    if (hasMappedContent && isCodexPostTurnInputPromptLine(trimmed, promptLines, currentTurnLines, index)) {
-      return !lastMappedLineWasBusyStatus;
-    }
-    if (!isCodexLiveChromeLine(line, promptLines)) {
-      hasMappedContent = true;
-      lastMappedLineWasBusyStatus = isCodexBusyStatusLine(line);
-    }
-  }
-  return false;
+  return codexTurnLinesHaveEndPrompt(currentTurnLines, promptLines);
+}
+
+export function terminalOutputHasCodexScopedTurnEndPrompt(value: string, activePrompt = "") {
+  const promptLines = makePromptLineSet(activePrompt);
+  return codexTurnLinesHaveEndPrompt(terminalOutputToScreenText(value).split("\n"), promptLines);
 }
 
 function makePromptLineSet(activePrompt: string) {
@@ -315,24 +315,6 @@ function findPromptAnchorEndFrom(lines: string[], startIndex: number, target: st
     }
   }
   return -1;
-}
-
-function truncateAtNextCodexInputPrompt(lines: string[], activePromptLines: Set<string>) {
-  let hasMappedContent = false;
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    if (hasMappedContent && isCodexPostTurnInputPromptLine(trimmed, activePromptLines, lines, index)) {
-      return lines.slice(0, index);
-    }
-    if (!isCodexLiveChromeLine(line, activePromptLines)) {
-      hasMappedContent = true;
-    }
-  }
-  return lines;
 }
 
 function consumeEscapeSequence(
@@ -543,6 +525,45 @@ function isCodexPostTurnInputPromptLine(
   return false;
 }
 
+function isCodexTurnChromeLine(line: string, activePromptLines: Set<string>, lines: string[], index: number) {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (isCodexLiveChromeLine(line, activePromptLines)) {
+    return true;
+  }
+  if (isCodexPostTurnInputPromptLine(trimmed, activePromptLines, lines, index)) {
+    return true;
+  }
+  return false;
+}
+
+function codexTurnLinesHaveEndPrompt(lines: string[], promptLines: Set<string>) {
+  let lastContentIndex = -1;
+  let lastPromptIndex = -1;
+  let lastContentLine = "";
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (isCodexPostTurnInputPromptLine(trimmed, promptLines, lines, index)) {
+      if (lastContentIndex >= 0) {
+        lastPromptIndex = index;
+      }
+      continue;
+    }
+    if (isCodexTurnChromeLine(line, promptLines, lines, index)) {
+      continue;
+    }
+    lastContentIndex = index;
+    lastContentLine = line;
+  }
+  return lastPromptIndex > lastContentIndex && !isCodexBusyStatusLine(lastContentLine);
+}
+
 function hasPromptChromeAfter(lines: string[], index: number) {
   if (index < 0) {
     return false;
@@ -579,13 +600,7 @@ function isCodexStatusLine(line: string) {
   if (!trimmed) {
     return false;
   }
-  if (/\besc to interrupt\b/i.test(trimmed)) {
-    return true;
-  }
-  if (new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*(?:${CODEX_BUSY_STATUS_WORDS})\\b`, "i").test(trimmed)) {
-    return true;
-  }
-  if (new RegExp(`^(?:${CODEX_BUSY_STATUS_WORDS})(?:\\s*\\(\\d+s|\\s*\\.{1,3}|…)?$`, "i").test(trimmed)) {
+  if (isCodexBusyStatusLine(trimmed)) {
     return true;
   }
   if (/^(?:ctrl-c|enter|shift\+enter)\b/i.test(trimmed)) {
@@ -596,17 +611,38 @@ function isCodexStatusLine(line: string) {
 
 function isCodexBusyStatusLine(line: string) {
   const trimmed = line.trim();
-  if (/\besc to interrupt\b/i.test(trimmed)) {
+  if (hasCodexInterruptMarker(trimmed)) {
     return true;
   }
-  return new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*(?:${CODEX_BUSY_STATUS_WORDS})\\b`, "i").test(trimmed);
+  const text = trimmed.replace(new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*`), "").trim();
+  if (/(?:\.{3}|…)$/.test(text) && text.length <= 120) {
+    return true;
+  }
+  if (new RegExp(`^(?:${CODEX_BUSY_STATUS_WORDS})\\b(?:\\s*\\.{1,3}|…)?$`, "i").test(text)) {
+    return true;
+  }
+  if (/\(\s*(?:\d+\s*(?:ms|s|m|h|秒|分|时)\s*)+(?:[·•,;]\s*)?/i.test(text)) {
+    return true;
+  }
+  if (/\s{2,}\d{1,5}$/.test(text)) {
+    return true;
+  }
+  return false;
 }
 
 function statusLineKind(line: string) {
-  const match = line
+  return line
     .trim()
-    .match(new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*(${CODEX_BUSY_STATUS_WORDS})\\b`, "i"));
-  return match ? match[1].toLowerCase() : "";
+    .replace(new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*`), "")
+    .replace(/\([^)]*(?:interrupt|\d+\s*(?:ms|s|m|h|秒|分|时))[^)]*\)/gi, "")
+    .replace(/\s{2,}\d{1,5}$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function hasCodexInterruptMarker(trimmed: string) {
+  return /\b(?:esc|ctrl-c|ctrl\+c|control-c)\s+to\s+interrupt\b/i.test(trimmed);
 }
 
 function replaceTrailingStatusLine(current: string, nextSnapshot: string) {

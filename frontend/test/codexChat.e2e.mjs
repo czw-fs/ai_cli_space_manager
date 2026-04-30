@@ -471,12 +471,64 @@ async function run() {
     const busyCursorClassDuringTerminalInput = await page
       .locator(".terminal-host .xterm")
       .evaluate((element) => element.classList.contains("terminal-codex-busy"));
-    if (busyCursorClassDuringTerminalInput) {
-      throw new Error("Expected terminal-codex-busy class to clear when the user returns to the real terminal");
+    if (!busyCursorClassDuringTerminalInput) {
+      throw new Error("Expected terminal-codex-busy class to remain while Codex is still streaming, even after arrow-key input");
     }
     await page.mouse.wheel(0, 600);
     await page.getByRole("button", { name: "Codex" }).click();
     await wait(1500);
+
+    await page.evaluate(() => {
+      window.__codexE2E.emitTerminal(
+        `\x1b[2J\x1b[H${[
+          "• Searching the web",
+          "",
+          "• Searched https://github.com/carlini/printf-tac-toe",
+          "",
+          "• I'm thinking about whether I need to open up more lines for the rest. I should probably summarize what I have.",
+          "",
+          "• Searching the web",
+          "",
+          "• Searched https://raw.githubusercontent.com/carlini/printf-tac-toe/master/printtt.c",
+          "",
+          "• Considering file output issues (1m 06s • esc to interrupt)",
+          "",
+          "> Find and fix a bug in @filename",
+          "",
+          "gpt-5.5 xhigh · C:\\dev\\myproject\\aiDefaultws",
+          "",
+          "- 功能上，它是一个双人井字棋程序。运行后输入 1-9 落子，P1/P2 轮流走。",
+          "- 代码上，它故意把几乎所有逻辑塞进 printf 的格式字符串里。",
+          "",
+          "文件大概是：",
+          "",
+          "- README.md：解释原理和用法。",
+          "- printtt.c：极度压缩/混淆后的版本。",
+          "- printtt.orig.c：带注释、相对更容易读的原始版本。",
+          "",
+          "所以它不是一个实用仓库，而是一个展示 C/printf 格式字符串能力的 IOCCC 作品。",
+          "",
+          "> Find and fix a bug in @filename",
+          "",
+          "gpt-5.5 xhigh · C:\\dev\\myproject\\aiDefaultws",
+          "",
+        ].join("\r\n")}`,
+      );
+    });
+    await page.waitForFunction(() => {
+      const outputs = [...document.querySelectorAll(".codex-message.assistant .codex-live-output")];
+      return outputs.some((element) => element.textContent?.includes("IOCCC 作品"));
+    }, undefined, { timeout: 5000 });
+    const promptAfterStatusText = await page.locator(".codex-message.assistant .codex-live-output").last().textContent();
+    if (!promptAfterStatusText?.includes("Considering file output issues")) {
+      throw new Error(`Expected live waiting status to remain mapped, got: ${promptAfterStatusText}`);
+    }
+    if (!promptAfterStatusText.includes("printf 的格式字符串")) {
+      throw new Error(`Expected final answer after transient prompt to keep syncing, got: ${promptAfterStatusText}`);
+    }
+    if (/Find and fix a bug|gpt-5\.5 xhigh|C:\\dev\\myproject\\aiDefaultws/.test(promptAfterStatusText)) {
+      throw new Error(`Expected transient prompt chrome to be filtered, got: ${promptAfterStatusText}`);
+    }
 
     await page.evaluate(() => {
       window.__codexE2E.emitTerminal(

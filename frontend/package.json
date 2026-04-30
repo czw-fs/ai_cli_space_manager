@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "node --loader ./test/ts-loader.mjs test/codexComposer.test.ts && node --loader ./test/ts-loader.mjs test/directoryOpeners.test.ts && node --loader ./test/ts-loader.mjs test/directoryOrder.test.ts && node --loader ./test/ts-loader.mjs test/openerCommand.test.ts && node --loader ./test/ts-loader.mjs test/terminalInput.test.ts && node --loader ./test/ts-loader.mjs test/terminalMarkdown.test.ts && npm run test:e2e",
+    "test": "node --loader ./test/ts-loader.mjs test/codexComposer.test.ts && node --loader ./test/ts-loader.mjs test/codexLiveMapping.generated.test.ts && node --loader ./test/ts-loader.mjs test/directoryOpeners.test.ts && node --loader ./test/ts-loader.mjs test/directoryOrder.test.ts && node --loader ./test/ts-loader.mjs test/openerCommand.test.ts && node --loader ./test/ts-loader.mjs test/terminalInput.test.ts && node --loader ./test/ts-loader.mjs test/terminalMarkdown.test.ts && npm run test:e2e",
     "test:e2e": "npm run build && playwright install chromium --no-shell && node test/codexChat.e2e.mjs",
     "preview": "vite preview"
   },

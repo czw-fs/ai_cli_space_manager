@@ -31,7 +31,9 @@ import { commandTemplateForApplication, nameFromApplicationPath } from "./opener
 import { shouldCopyTerminalSelection } from "./terminalInput";
 import {
   mergeCodexTurnLiveText,
+  terminalOutputHasCodexScopedTurnEndPrompt,
   terminalOutputHasCodexTurnEndPrompt,
+  terminalOutputToCodexScopedLiveText,
   terminalOutputToCodexTurnLiveText,
 } from "./terminalMarkdown";
 import type {
@@ -161,7 +163,7 @@ function App() {
       const rawSource = activeCodexReplyRawBySession.current[sessionId] ?? "";
       const activeRawReplyText =
         rawSource && rawSource !== source
-          ? terminalOutputToCodexTurnLiveText(rawSource, prompt)
+          ? terminalOutputToCodexScopedLiveText(rawSource, prompt)
           : "";
       const replyText = anchoredReplyText || activeRawReplyText;
       const replyIsAuthoritativeScreen = sourceIsScreenSnapshot && Boolean(anchoredReplyText);
@@ -185,7 +187,9 @@ function App() {
           ),
         };
       });
-      if (terminalOutputHasCodexTurnEndPrompt(source, prompt)) {
+      const turnEnded = terminalOutputHasCodexTurnEndPrompt(source, prompt) ||
+        (Boolean(rawSource) && terminalOutputHasCodexScopedTurnEndPrompt(rawSource, prompt));
+      if (turnEnded) {
         activeCodexFinalizeTimerBySession.current[sessionId] = window.setTimeout(() => {
           if (activeCodexReplyIdBySession.current[sessionId] !== activeReplyId) {
             return;
@@ -1163,6 +1167,10 @@ function showTerminalCursor(handle: TerminalHandle | undefined, clearCodexBusy =
   }
 }
 
+function revealTerminalCursorForUserInput(handle: TerminalHandle | undefined, codexStreaming = false) {
+  showTerminalCursor(handle, !codexStreaming);
+}
+
 function disposeTerminalHandle(handle: TerminalHandle | undefined) {
   if (!handle) {
     return;
@@ -1224,12 +1232,17 @@ function TerminalPanel({
   const codexComposer = activeSession ? codexComposerBySession[activeSession.id] ?? { text: "", attachments: [] } : { text: "", attachments: [] };
   const codexMessages = activeSession ? codexMessagesBySession[activeSession.id] ?? [] : [];
   const codexStreaming = codexMessages.some((messageItem) => messageItem.role === "assistant" && messageItem.streaming);
+  const codexStreamingRef = useRef(codexStreaming);
   const [attachmentPathDraft, setAttachmentPathDraft] = useState(attachmentRootPath);
   const [attachmentPathEditing, setAttachmentPathEditing] = useState(false);
 
   useEffect(() => {
     onInputErrorRef.current = onInputError;
   }, [onInputError]);
+
+  useEffect(() => {
+    codexStreamingRef.current = codexStreaming;
+  }, [codexStreaming]);
 
   useEffect(() => {
     setAttachmentPathDraft(attachmentRootPath);
@@ -1270,7 +1283,7 @@ function TerminalPanel({
         return false;
       });
       terminal.onData((data) => {
-        showTerminalCursor(terminalRegistry.current[activeSession.id]);
+        revealTerminalCursorForUserInput(terminalRegistry.current[activeSession.id], codexStreamingRef.current);
         api.writeTerminalInput(activeSession.id, data).catch(onInputErrorRef.current);
       });
       const fitAddon = new FitAddon();
@@ -1329,11 +1342,11 @@ function TerminalPanel({
     if (view === "terminal" && activeSession && terminalRegistry.current[activeSession.id]) {
       window.setTimeout(() => {
         const handle = terminalRegistry.current[activeSession.id];
-        showTerminalCursor(handle, false);
+        revealTerminalCursorForUserInput(handle, codexStreaming);
         handle?.terminal.focus();
       }, 0);
     }
-  }, [activeSession?.id, terminalRegistry, view]);
+  }, [activeSession?.id, codexStreaming, terminalRegistry, view]);
 
   useEffect(() => {
     if (!activeSession) {
@@ -1351,7 +1364,7 @@ function TerminalPanel({
   const focusActiveTerminal = () => {
     if (view === "terminal" && activeSession) {
       const handle = terminalRegistry.current[activeSession.id];
-      showTerminalCursor(handle, false);
+      revealTerminalCursorForUserInput(handle, codexStreaming);
       handle?.terminal.focus();
     }
   };
