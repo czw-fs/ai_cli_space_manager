@@ -292,6 +292,15 @@ assertEqual(
 );
 
 assertEqual(
+  terminalOutputHasCodexTurnEndPrompt(
+    "> 当前问题\n• Inspecting documentation pages        36\n\n> Run /review on my current changes",
+    "当前问题",
+  ),
+  false,
+  "does not finish current turn while codex is still showing an inspecting status",
+);
+
+assertEqual(
   mergeCodexTurnLiveText("• Working (0s · esc to interrupt)", "• Working (1s · esc to interrupt)"),
   "• Working (1s · esc to interrupt)",
   "updates the live working timer in place",

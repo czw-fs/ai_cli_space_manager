@@ -801,10 +801,6 @@ body.resizing-sidebar * {
   height: 100%;
 }
 
-.terminal-host .xterm.terminal-output-active .xterm-cursor {
-  visibility: hidden !important;
-}
-
 .codex-chat {
   min-width: 0;
   min-height: 0;

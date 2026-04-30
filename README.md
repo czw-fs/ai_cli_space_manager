@@ -123,11 +123,32 @@ wails dev
 
 每次打包 exe 时，文件名需要追加时间戳，格式为 `yyyy-MM-dd-HH-mm-ss`。
 
-示例：
+前置要求：
+
+- Windows。
+- 已安装 Go，并且 `go` 可以在 PowerShell 中直接运行。
+- 已安装 Node.js / npm。
+
+通用打包命令如下，不依赖某一台电脑上的固定 `wails.exe` 路径；如果当前电脑没有全局 `wails` 命令，会自动安装项目使用的 Wails CLI 版本后再打包：
 
 ```powershell
 $timestamp = Get-Date -Format 'yyyy-MM-dd-HH-mm-ss'
-& 'C:\dev\com\goProject\bin\wails.exe' build -o "ai_cli_space_manager-$timestamp.exe"
+$wailsCommand = Get-Command wails -ErrorAction SilentlyContinue
+
+if ($wailsCommand) {
+  $wails = $wailsCommand.Source
+} else {
+  go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
+
+  $goBin = go env GOBIN
+  if (-not $goBin) {
+    $goBin = Join-Path (go env GOPATH) 'bin'
+  }
+
+  $wails = Join-Path $goBin 'wails.exe'
+}
+
+& $wails build -o "ai_cli_space_manager-$timestamp.exe"
 ```
 
 输出文件在：

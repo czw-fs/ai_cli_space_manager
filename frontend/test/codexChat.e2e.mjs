@@ -201,7 +201,7 @@ async function run() {
   let browser;
   try {
     await waitForServer(server);
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ channel: "chromium", headless: true });
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await setupWailsMocks(page);
     await page.goto(BASE_URL);
@@ -364,6 +364,76 @@ async function run() {
     }
     if (/PS C:\\|OpenAI Codex|model:|directory:|permissions:/i.test(longFinalText)) {
       throw new Error(`Expected long Codex answer without terminal chrome, got: ${longFinalText}`);
+    }
+
+    await page.locator(".codex-chat-input textarea").fill("复现滚动同步卡住");
+    await page.getByRole("button", { name: "发送" }).click();
+    await page.waitForFunction(() => window.__codexE2E?.writes?.length >= 6);
+    await page.evaluate(() => {
+      window.__codexE2E.emitTerminal(
+        `\x1b[2J\x1b[H${[
+          "PS C:\\dev\\testproject\\aidefaultws> codex",
+          "OpenAI Codex (v0.125.0)",
+          "",
+          "> 复现滚动同步卡住",
+          "",
+          "• Inspecting documentation pages (1m 22s • esc to interrupt)",
+          "",
+          "> Run /review on my current changes",
+          "gpt-5.5 xhigh · C:\\dev\\testproject\\aidefaultws",
+          "",
+        ].join("\r\n")}`,
+      );
+    });
+    await page.waitForFunction(() => {
+      const outputs = [...document.querySelectorAll(".codex-message.assistant .codex-live-output")];
+      return outputs.some((element) => element.textContent?.includes("Inspecting documentation pages"));
+    });
+
+    await page.getByLabel("终端视图切换").getByRole("button", { name: "终端" }).click();
+    await page.locator(".terminal-host .xterm").click({ position: { x: 30, y: 30 } });
+    await page.mouse.wheel(0, -600);
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("ArrowDown");
+    await page.evaluate(() => {
+      window.__codexE2E.emitTerminal("\r\n• Inspecting documentation pages        36\r\n");
+    });
+    const cursorHiddenDuringTerminalInput = await page
+      .locator(".terminal-host .xterm")
+      .evaluate((element) => element.classList.contains("terminal-output-active"));
+    if (cursorHiddenDuringTerminalInput) {
+      throw new Error("Expected terminal cursor to stay visible after arrow-key input during Codex output");
+    }
+    await page.mouse.wheel(0, 600);
+    await page.getByRole("button", { name: "Codex" }).click();
+    await wait(1500);
+
+    await page.evaluate(() => {
+      window.__codexE2E.emitTerminal(
+        `\x1b[2J\x1b[H${[
+          "PS C:\\dev\\testproject\\aidefaultws> codex",
+          "OpenAI Codex (v0.125.0)",
+          "",
+          "> 复现滚动同步卡住",
+          "",
+          "• 我复现到了滚动和方向键期间的同步问题。",
+          "",
+          "最终回答：滚动后仍然继续同步。",
+          "",
+          "> Implement {feature}",
+          "gpt-5.5 xhigh · C:\\dev\\testproject\\aidefaultws",
+          "",
+        ].join("\r\n")}`,
+      );
+    });
+    try {
+      await page.waitForFunction(() => {
+        const outputs = [...document.querySelectorAll(".codex-message.assistant .codex-live-output")];
+        return outputs.some((element) => element.textContent?.includes("最终回答：滚动后仍然继续同步。"));
+      }, undefined, { timeout: 5000 });
+    } catch (error) {
+      const debugText = await page.locator(".codex-message.assistant .codex-live-output").allTextContents();
+      throw new Error(`Expected Codex view to keep syncing after terminal scroll and arrow-key input. Current assistant outputs: ${JSON.stringify(debugText)}. ${error}`);
     }
   } finally {
     await browser?.close();

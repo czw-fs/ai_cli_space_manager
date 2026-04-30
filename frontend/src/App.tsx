@@ -56,8 +56,6 @@ type TerminalView = "terminal" | "codex";
 type TerminalHandle = {
   terminal: Terminal;
   fitAddon: FitAddon;
-  cursorHidden?: boolean;
-  outputQuietTimer?: number;
   lastCols?: number;
   lastRows?: number;
 };
@@ -75,9 +73,6 @@ type CodexChatMessage = {
   streaming?: boolean;
 };
 
-const TERMINAL_HIDE_CURSOR = "\x1b[?25l";
-const TERMINAL_SHOW_CURSOR = "\x1b[?25h";
-const TERMINAL_OUTPUT_IDLE_MS = 1600;
 const DEFAULT_SIDEBAR_WIDTH = 176;
 const SIDEBAR_MIN_WIDTH = 128;
 const SIDEBAR_MAX_WIDTH = 320;
@@ -1133,17 +1128,9 @@ function ResizableSearchInput({
 }
 
 function writeTerminalOutput(handle: TerminalHandle, data: string, onFlushed?: () => void) {
-  hideTerminalCursor(handle);
   handle.terminal.write(data, () => {
     onFlushed?.();
-    handle.terminal.write(TERMINAL_HIDE_CURSOR);
   });
-  if (handle.outputQuietTimer) {
-    window.clearTimeout(handle.outputQuietTimer);
-  }
-  handle.outputQuietTimer = window.setTimeout(() => {
-    showTerminalCursor(handle);
-  }, TERMINAL_OUTPUT_IDLE_MS);
 }
 
 function readTerminalBufferText(handle: TerminalHandle) {
@@ -1164,37 +1151,16 @@ function readTerminalBufferText(handle: TerminalHandle) {
   return lines.join("\n");
 }
 
-function hideTerminalCursor(handle: TerminalHandle) {
-  handle.terminal.element?.classList.add("terminal-output-active");
-  if (handle.cursorHidden) {
-    return;
-  }
-  handle.cursorHidden = true;
-  handle.terminal.write(TERMINAL_HIDE_CURSOR);
-}
-
 function showTerminalCursor(handle: TerminalHandle | undefined) {
   if (!handle) {
     return;
   }
-  if (handle.outputQuietTimer) {
-    window.clearTimeout(handle.outputQuietTimer);
-    handle.outputQuietTimer = undefined;
-  }
   handle.terminal.element?.classList.remove("terminal-output-active");
-  if (!handle.cursorHidden) {
-    return;
-  }
-  handle.cursorHidden = false;
-  handle.terminal.write(TERMINAL_SHOW_CURSOR);
 }
 
 function disposeTerminalHandle(handle: TerminalHandle | undefined) {
   if (!handle) {
     return;
-  }
-  if (handle.outputQuietTimer) {
-    window.clearTimeout(handle.outputQuietTimer);
   }
   handle.terminal.dispose();
 }

@@ -1,4 +1,4 @@
-# AGENTS.md instructions for C:\dev\testproject\open_workspase_ps
+# AGENTS.md instructions
 
 <INSTRUCTIONS>
 1. 所有回复中，除非必要关键字外，都是用中文
@@ -16,3 +16,5 @@
 13. Codex 新界面现在优先读取同一终端会话的 xterm 已渲染 buffer 作为权威屏幕快照，再用当前用户输入锚点切出本轮输出；Codex 视图下会保留隐藏的 xterm host 作为同步数据源，但界面不显示任何终端内容。xterm 快照有内容时直接替换当前 assistant 气泡，避免最终回答出现后仍残留旧 `Working` 状态。
 14. Codex 聊天同步有真实浏览器 e2e 覆盖：`npm test` 会运行 `test/codexChat.e2e.mjs`，打开构建后的前端、mock Wails 终端会话、通过 Codex 输入框发送消息，并模拟 Codex CLI 先输出 `◦ Working` 再整屏重绘最终回答；测试要求聊天气泡实时更新为最终回答且不残留旧 `Working`。
 15. Codex 聊天映射不能在找不到当前用户输入锚点时退回解析整屏终端内容；只能映射当前 activePrompt 之后的本轮输出，或同样能按 activePrompt 切片的 active raw buffer。`PS ...> codex`、`OpenAI Codex`、`model/directory/permissions`、`Tip:` 等 Codex/终端外壳必须始终过滤，避免启动 banner、终端 prompt、历史搜索状态污染当前气泡。长回复结束使用短延迟 finalize 等最后一帧，不允许用无锚点整屏 fallback 解决截断问题。
+16. README 打包说明已改为通用 PowerShell 命令：优先使用 PATH 中的 `wails`，没有则执行 `go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1`，再从 `GOBIN` 或 `GOPATH\bin` 定位 `wails.exe`，避免依赖本机固定绝对路径。
+17. 终端输出期间不要再向 xterm 额外写入隐藏/显示光标 ANSI，也不要用 `terminal-output-active` 隐藏光标；这会在 Codex TUI 控制序列分块时打断清屏/光标移动，导致滚动或方向键后画面错位、光标消失。Codex 忙碌状态识别已覆盖 `Inspecting` 等状态词，避免运行中误判本轮结束；e2e 会模拟滚动和上下方向键后继续同步最终回答。

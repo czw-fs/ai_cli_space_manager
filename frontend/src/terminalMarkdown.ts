@@ -1,6 +1,8 @@
 const MAX_MARKDOWN_OUTPUT_CHARS = 120000;
 const MAX_CODEX_TERMINAL_ROWS = 1200;
 const CODEX_STATUS_PREFIX_PATTERN = "[•·*◦○●-]?";
+const CODEX_BUSY_STATUS_WORDS =
+  "working|thinking|running|reading|writing|searching|applying|planning|inspecting|gathering|analyzing|checking|executing|editing|building|testing";
 
 type CursorState = {
   row: number;
@@ -551,10 +553,10 @@ function isCodexStatusLine(line: string) {
   if (/\besc to interrupt\b/i.test(trimmed)) {
     return true;
   }
-  if (new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*(?:working|thinking|running|reading|writing|searching|applying|planning)\\b`, "i").test(trimmed)) {
+  if (new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*(?:${CODEX_BUSY_STATUS_WORDS})\\b`, "i").test(trimmed)) {
     return true;
   }
-  if (/^(?:working|thinking|running|reading|writing|searching|applying|planning)(?:\s*\(\d+s|\s*\.{1,3}|…)?$/i.test(trimmed)) {
+  if (new RegExp(`^(?:${CODEX_BUSY_STATUS_WORDS})(?:\\s*\\(\\d+s|\\s*\\.{1,3}|…)?$`, "i").test(trimmed)) {
     return true;
   }
   if (/^(?:ctrl-c|enter|shift\+enter)\b/i.test(trimmed)) {
@@ -568,13 +570,13 @@ function isCodexBusyStatusLine(line: string) {
   if (/\besc to interrupt\b/i.test(trimmed)) {
     return true;
   }
-  return new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*(?:working|thinking|running|reading|writing|searching|applying|planning)\\b`, "i").test(trimmed);
+  return new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*(?:${CODEX_BUSY_STATUS_WORDS})\\b`, "i").test(trimmed);
 }
 
 function statusLineKind(line: string) {
   const match = line
     .trim()
-    .match(new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*(working|thinking|running|reading|writing|searching|applying|planning)\\b`, "i"));
+    .match(new RegExp(`^${CODEX_STATUS_PREFIX_PATTERN}\\s*(${CODEX_BUSY_STATUS_WORDS})\\b`, "i"));
   return match ? match[1].toLowerCase() : "";
 }
 
