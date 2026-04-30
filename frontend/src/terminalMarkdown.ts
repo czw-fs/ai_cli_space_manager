@@ -117,12 +117,13 @@ export function terminalOutputHasCodexTurnEndPrompt(value: string, activePrompt 
   const currentTurnLines = sliceCodexCurrentTurnLines(terminalOutputToScreenText(value).split("\n"), activePrompt, true);
   let hasMappedContent = false;
   let lastMappedLineWasBusyStatus = false;
-  for (const line of currentTurnLines) {
+  for (let index = 0; index < currentTurnLines.length; index += 1) {
+    const line = currentTurnLines[index];
     const trimmed = line.trim();
     if (!trimmed) {
       continue;
     }
-    if (hasMappedContent && isCodexPostTurnInputPromptLine(trimmed, promptLines)) {
+    if (hasMappedContent && isCodexPostTurnInputPromptLine(trimmed, promptLines, currentTurnLines, index)) {
       return !lastMappedLineWasBusyStatus;
     }
     if (!isCodexLiveChromeLine(line, promptLines)) {
@@ -324,7 +325,7 @@ function truncateAtNextCodexInputPrompt(lines: string[], activePromptLines: Set<
     if (!trimmed) {
       continue;
     }
-    if (hasMappedContent && isCodexPostTurnInputPromptLine(trimmed, activePromptLines)) {
+    if (hasMappedContent && isCodexPostTurnInputPromptLine(trimmed, activePromptLines, lines, index)) {
       return lines.slice(0, index);
     }
     if (!isCodexLiveChromeLine(line, activePromptLines)) {
@@ -527,12 +528,38 @@ function isCodexInputPromptLine(trimmed: string, activePromptLines: Set<string>)
   return false;
 }
 
-function isCodexPostTurnInputPromptLine(trimmed: string, activePromptLines: Set<string>) {
+function isCodexPostTurnInputPromptLine(
+  trimmed: string,
+  activePromptLines: Set<string>,
+  lines: string[] = [],
+  index = -1,
+) {
   if (isCodexInputPromptLine(trimmed, activePromptLines)) {
     return true;
   }
-  if (/^[>›]\s+\S/.test(trimmed)) {
+  if (/^[>›]\s+\S/.test(trimmed) && hasPromptChromeAfter(lines, index)) {
     return true;
+  }
+  return false;
+}
+
+function hasPromptChromeAfter(lines: string[], index: number) {
+  if (index < 0) {
+    return false;
+  }
+  const maxIndex = Math.min(lines.length, index + 4);
+  for (let nextIndex = index + 1; nextIndex < maxIndex; nextIndex += 1) {
+    const nextTrimmed = lines[nextIndex].trim();
+    if (!nextTrimmed) {
+      continue;
+    }
+    if (/^gpt-[\w.-]+(?:\s+\w+)?\s*·\s*[A-Za-z]:[\\/]/i.test(nextTrimmed)) {
+      return true;
+    }
+    if (isCodexSessionChromeLine(nextTrimmed)) {
+      return true;
+    }
+    return false;
   }
   return false;
 }

@@ -199,6 +199,17 @@ async function setupWailsMocks(page) {
   }, { sessionId: SESSION_ID });
 }
 
+async function sendCodexPromptWithEnter(page, prompt, expectedWriteCount) {
+  const input = page.locator(".codex-chat-input textarea");
+  await input.fill(prompt);
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    (count) => window.__codexE2E?.writes?.length >= count,
+    expectedWriteCount,
+    { timeout: 5000 },
+  );
+}
+
 async function run() {
   const server = await startStaticServer();
   let browser;
@@ -211,10 +222,20 @@ async function run() {
 
     await page.getByRole("button", { name: "终端", exact: true }).click();
     await page.getByRole("button", { name: "Codex" }).click();
-    await page.locator(".codex-chat-input textarea").fill("hello");
-    await page.getByRole("button", { name: "发送" }).click();
+    const codexInput = page.locator(".codex-chat-input textarea");
+    await codexInput.fill("hello");
+    await page.keyboard.press("Shift+Enter");
+    await wait(250);
+    const writesAfterShiftEnter = await page.evaluate(() => window.__codexE2E.writes.length);
+    if (writesAfterShiftEnter !== 0) {
+      throw new Error(`Expected Shift+Enter to insert a newline without sending, got writes: ${writesAfterShiftEnter}`);
+    }
+    const shiftEnterValue = await codexInput.inputValue();
+    if (shiftEnterValue !== "hello\n") {
+      throw new Error(`Expected Shift+Enter to keep a newline in Codex input, got: ${JSON.stringify(shiftEnterValue)}`);
+    }
+    await sendCodexPromptWithEnter(page, "hello", 2);
 
-    await page.waitForFunction(() => window.__codexE2E?.writes?.length >= 2);
     const firstSubmitGap = await page.evaluate(() => {
       const events = window.__codexE2E.writeEvents;
       return events[1].at - events[0].at;
@@ -280,9 +301,7 @@ async function run() {
       throw new Error(`Expected stale Working status to be replaced, got: ${finalText}`);
     }
 
-    await page.locator(".codex-chat-input textarea").fill("介绍一下这个仓库");
-    await page.getByRole("button", { name: "发送" }).click();
-    await page.waitForFunction(() => window.__codexE2E?.writes?.length >= 4);
+    await sendCodexPromptWithEnter(page, "介绍一下这个仓库", 4);
     await page.evaluate(() => {
       window.__codexE2E.emitTerminal(
         `\x1b[2J\x1b[H${[
@@ -376,9 +395,7 @@ async function run() {
       throw new Error(`Expected long Codex answer without terminal chrome, got: ${longFinalText}`);
     }
 
-    await page.locator(".codex-chat-input textarea").fill("› https://github.com/carlini/printf-tac-toe\n帮我看看这个仓库是干什么的");
-    await page.getByRole("button", { name: "发送" }).click();
-    await page.waitForFunction(() => window.__codexE2E?.writes?.length >= 6);
+    await sendCodexPromptWithEnter(page, "› https://github.com/carlini/printf-tac-toe\n帮我看看这个仓库是干什么的", 6);
     await page.evaluate(() => {
       window.__codexE2E.emitTerminal(
         `\x1b[2J\x1b[H${[
@@ -403,9 +420,7 @@ async function run() {
     await page.keyboard.press("Control+C");
     await page.waitForFunction(() => window.__codexE2E?.writes?.includes("\u0003"));
 
-    await page.locator(".codex-chat-input textarea").fill("复现滚动同步卡住");
-    await page.getByRole("button", { name: "发送" }).click();
-    await page.waitForFunction(() => window.__codexE2E?.writes?.length >= 9);
+    await sendCodexPromptWithEnter(page, "复现滚动同步卡住", 9);
     await page.evaluate(() => {
       window.__codexE2E.emitTerminal(
         `\x1b[2J\x1b[H${[

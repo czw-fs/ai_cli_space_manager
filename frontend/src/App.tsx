@@ -16,6 +16,7 @@ import {
   buildCodexPrompt,
   buildComposerWrites,
   CODEX_INTERACTIVE_SUBMIT_DELAY_MS,
+  shouldSendCodexComposerOnEnter,
   shouldSendComposerOnEnter,
 } from "./codexComposer";
 import {
@@ -1720,7 +1721,6 @@ function TerminalPanel({
           activeSession={activeSession}
           messages={codexMessages}
           composer={codexComposer}
-          enterKeyMode={enterKeyMode}
           onPaste={handleCodexComposerPaste}
           onComposerChange={updateCodexComposer}
           onRemoveAttachment={removeCodexAttachment}
@@ -1739,7 +1739,6 @@ function CodexPanel({
   activeSession,
   messages,
   composer,
-  enterKeyMode,
   onPaste,
   onComposerChange,
   onRemoveAttachment,
@@ -1751,7 +1750,6 @@ function CodexPanel({
   activeSession: TerminalSession | undefined;
   messages: CodexChatMessage[];
   composer: ComposerState;
-  enterKeyMode: AppState["ui"]["enterKeyMode"];
   onPaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void;
   onComposerChange: (sessionId: string, next: ComposerState) => void;
   onRemoveAttachment: (sessionId: string, attachmentId: string) => void;
@@ -1860,7 +1858,7 @@ function CodexPanel({
                 onInterrupt();
                 return;
               }
-              if (shouldSendComposerOnEnter(event, enterKeyMode)) {
+              if (shouldSendCodexComposerOnEnter(event)) {
                 event.preventDefault();
                 onSend();
               }
@@ -1878,7 +1876,7 @@ function CodexPanel({
         </div>
         <div className="codex-chat-actions">
           <button type="button" disabled={messages.length === 0} onClick={onClearMessages}>清空对话</button>
-          <span>{enterKeyMode === "send" ? "Enter 发送，Shift+Enter 换行" : "Ctrl+Enter 发送，Enter 换行"}</span>
+          <span>Enter 发送，Shift+Enter 换行</span>
         </div>
       </div>
     </div>

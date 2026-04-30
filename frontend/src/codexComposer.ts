@@ -16,15 +16,17 @@ export type ComposerEnterShortcut = {
 };
 
 export function buildCodexPrompt(text: string, attachments: AttachmentFile[]) {
-  const lines = [text.trim()];
+  const lines = text.trim() ? [text.trim()] : [];
   if (attachments.length > 0) {
-    lines.push("");
+    if (lines.length > 0) {
+      lines.push("");
+    }
     lines.push("附件图片：");
     for (const attachment of attachments) {
       lines.push(attachment.path);
     }
   }
-  return lines.filter((line, index) => line !== "" || index > 0).join("\n");
+  return lines.join("\n");
 }
 
 export function bracketedPaste(text: string) {
@@ -51,4 +53,8 @@ export function shouldSendComposerOnEnter(event: ComposerEnterShortcut, mode: En
     return true;
   }
   return event.ctrlKey || event.metaKey;
+}
+
+export function shouldSendCodexComposerOnEnter(event: ComposerEnterShortcut) {
+  return event.key === "Enter" && !event.shiftKey;
 }

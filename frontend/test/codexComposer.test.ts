@@ -4,6 +4,7 @@ import {
   buildComposerWrites,
   CODEX_INTERACTIVE_SUBMIT_DELAY_MS,
   CODEX_EXECUTE_SEQUENCE,
+  shouldSendCodexComposerOnEnter,
   shouldSendComposerOnEnter,
   TERMINAL_ENTER,
 } from "../src/codexComposer";
@@ -31,6 +32,18 @@ assertEqual(
   buildCodexPrompt("  修复布局  ", [attachment]),
   "修复布局\n\n附件图片：\nC:\\tmp\\image.png",
   "composer prompt includes attachment paths",
+);
+
+assertEqual(
+  buildCodexPrompt("   ", [attachment]),
+  "附件图片：\nC:\\tmp\\image.png",
+  "codex prompt with only attachments does not start with a blank line",
+);
+
+assertEqual(
+  buildCodexPrompt("\n\n检查截图\n\n", [attachment]),
+  "检查截图\n\n附件图片：\nC:\\tmp\\image.png",
+  "codex prompt trims outer blank lines while keeping the attachment separator",
 );
 
 assertArrayEqual(
@@ -73,4 +86,28 @@ assertEqual(
   shouldSendComposerOnEnter({ key: "Enter", shiftKey: false, ctrlKey: true, metaKey: false }, "newline"),
   true,
   "Ctrl+Enter sends in newline mode",
+);
+
+assertEqual(
+  shouldSendCodexComposerOnEnter({ key: "Enter", shiftKey: false, ctrlKey: false, metaKey: false }),
+  true,
+  "Codex chat Enter sends even when the terminal composer uses newline mode",
+);
+
+assertEqual(
+  shouldSendCodexComposerOnEnter({ key: "Enter", shiftKey: true, ctrlKey: false, metaKey: false }),
+  false,
+  "Codex chat Shift+Enter keeps a newline escape hatch",
+);
+
+assertEqual(
+  shouldSendCodexComposerOnEnter({ key: "Enter", shiftKey: false, ctrlKey: true, metaKey: false }),
+  true,
+  "Codex chat Ctrl+Enter also sends for users with newline-mode muscle memory",
+);
+
+assertEqual(
+  shouldSendCodexComposerOnEnter({ key: "a", shiftKey: false, ctrlKey: false, metaKey: false }),
+  false,
+  "Codex chat ignores non-Enter keys",
 );

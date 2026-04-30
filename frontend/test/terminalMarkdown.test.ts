@@ -145,6 +145,41 @@ assertEqual(
 
 assertEqual(
   terminalOutputToCodexTurnLiveText(
+    [
+      "› 第一行是一个很长的问题，会被终端自动换行",
+      "  第二行继续描述复现场景",
+      "  C:\\dev\\myproject\\ai_cli_space_manager\\build\\bin\\codex_attachments\\20260430\\terminal-2\\image-154609.372.png",
+      "",
+      "◦ Working (0s · esc to interrupt)",
+      "• 正在读取截图路径",
+    ].join("\n"),
+    [
+      "第一行是一个很长的问题，会被终端自动换行",
+      "第二行继续描述复现场景",
+      "C:\\dev\\myproject\\ai_cli_space_manager\\build\\bin\\codex_attachments\\20260430\\terminal-2\\image-154609.372.png",
+    ].join("\n"),
+  ),
+  "◦ Working (0s · esc to interrupt)\n• 正在读取截图路径",
+  "matches wrapped multi-line prompts with attachment paths",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
+    [
+      "› 附件图片：",
+      "  C:\\tmp\\image.png",
+      "",
+      "• Working (0s · esc to interrupt)",
+      "• 我会查看这张图片。",
+    ].join("\n"),
+    "附件图片：\nC:\\tmp\\image.png",
+  ),
+  "• Working (0s · esc to interrupt)\n• 我会查看这张图片。",
+  "matches Codex turns that were submitted with attachments only",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
     "> 修复问题\n旧回答\n\n> 修复问题\n新回答",
     "修复问题",
   ),
@@ -218,6 +253,89 @@ assertEqual(
   ),
   "• 你好。",
   "extracts the finished answer from the xterm screen buffer and ignores the next suggested input",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
+    [
+      "> 解释命令",
+      "",
+      "可以在 PowerShell 里运行：",
+      "> npm test",
+      "然后查看输出。",
+      "",
+      "> Implement {feature}",
+    ].join("\n"),
+    "解释命令",
+  ),
+  "可以在 PowerShell 里运行：\n> npm test\n然后查看输出。",
+  "does not truncate final answer lines that happen to start with a prompt-like greater-than sign",
+);
+
+assertEqual(
+  terminalOutputHasCodexTurnEndPrompt(
+    [
+      "> 解释命令",
+      "",
+      "可以在 PowerShell 里运行：",
+      "> npm test",
+      "然后查看输出。",
+      "",
+      "> Implement {feature}",
+    ].join("\n"),
+    "解释命令",
+  ),
+  true,
+  "still detects completion when prompt-like answer lines appear before the idle placeholder",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
+    [
+      "> 解释 Markdown 引用",
+      "",
+      "Markdown 引用示例：",
+      "> 这是一段引用文本",
+      "",
+      "引用后还有结论。",
+    ].join("\n"),
+    "解释 Markdown 引用",
+  ),
+  "Markdown 引用示例：\n> 这是一段引用文本\n\n引用后还有结论。",
+  "preserves Markdown quote lines in Codex answers",
+);
+
+assertEqual(
+  terminalOutputHasCodexTurnEndPrompt(
+    [
+      "> 解释 Markdown 引用",
+      "",
+      "Markdown 引用示例：",
+      "> 这是一段引用文本",
+      "",
+      "引用后还有结论。",
+    ].join("\n"),
+    "解释 Markdown 引用",
+  ),
+  false,
+  "does not finish a turn just because the answer contains a Markdown quote line",
+);
+
+assertEqual(
+  terminalOutputToCodexTurnLiveText(
+    [
+      "> 复现 ANSI 重绘",
+      "",
+      "◦ Working (0s · esc to interrupt)",
+      "\x1b[1A\x1b[2K• Thinking",
+      "最终回答",
+      "",
+      "> Implement {feature}",
+    ].join("\n"),
+    "复现 ANSI 重绘",
+  ),
+  "• Thinking\n最终回答",
+  "maps ANSI cursor-up and clear-line redraws into the latest visible Codex screen",
 );
 
 assertEqual(
