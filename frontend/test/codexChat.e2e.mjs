@@ -410,6 +410,41 @@ async function run() {
     }
 
     await page.getByLabel("聊天模式").getByRole("button", { name: "Codex" }).click();
+    await page.evaluate(() => {
+      window.__codexE2E.emitTerminal(
+        `\x1b[2J\x1b[H${[
+          "PS C:\\dev\\testproject\\aidefaultws> codex",
+          "OpenAI Codex (v0.125.0)",
+          "",
+          "> https://github.com/carlini/printf-tac-toe",
+          "  帮我看看这个仓库是干什么的",
+          "",
+          "• 这是一个 IOCCC 井字棋作品。",
+          "",
+          "> Implement {feature}",
+          "gpt-5.5 xhigh · C:\\dev\\testproject\\aidefaultws",
+          "",
+        ].join("\r\n")}`,
+      );
+    });
+    const writesBeforeManualSync = await page.evaluate(() => window.__codexE2E.writes.length);
+    await page.getByRole("button", { name: "同步终端" }).click();
+    await page.waitForFunction(() => {
+      const outputs = [...document.querySelectorAll(".codex-message.assistant .codex-live-output")];
+      return outputs.some((element) => element.textContent?.includes("IOCCC 井字棋作品"));
+    }, undefined, { timeout: 5000 });
+    const writesAfterManualSync = await page.evaluate(() => window.__codexE2E.writes.length);
+    if (writesAfterManualSync !== writesBeforeManualSync) {
+      throw new Error(`Expected manual terminal sync not to write terminal input, got ${writesAfterManualSync - writesBeforeManualSync} writes`);
+    }
+    const syncUserMessagesBeforeRepeat = await page.locator(".codex-message.user").count();
+    await page.getByRole("button", { name: "同步终端" }).click();
+    await wait(200);
+    const syncUserMessagesAfterRepeat = await page.locator(".codex-message.user").count();
+    if (syncUserMessagesAfterRepeat !== syncUserMessagesBeforeRepeat) {
+      throw new Error(`Expected repeated manual sync to update in place, got user messages ${syncUserMessagesBeforeRepeat} -> ${syncUserMessagesAfterRepeat}`);
+    }
+
     const codexInput = page.locator(".codex-chat-input textarea");
     const writesBeforeShiftEnter = await page.evaluate(() => window.__codexE2E.writes.length);
     await codexInput.fill("hello");
@@ -453,6 +488,18 @@ async function run() {
     const workingText = await page.locator(".codex-message.assistant .codex-live-output").last().textContent();
     if (!workingText?.includes("Working")) {
       throw new Error(`Expected live Working status, got: ${workingText}`);
+    }
+    const writesBeforeRunningSync = await page.evaluate(() => window.__codexE2E.writes.length);
+    const userMessagesBeforeRunningSync = await page.locator(".codex-message.user").count();
+    await page.getByRole("button", { name: "同步终端" }).click();
+    await wait(200);
+    const writesAfterRunningSync = await page.evaluate(() => window.__codexE2E.writes.length);
+    const userMessagesAfterRunningSync = await page.locator(".codex-message.user").count();
+    if (writesAfterRunningSync !== writesBeforeRunningSync) {
+      throw new Error(`Expected running manual sync not to write terminal input, got ${writesAfterRunningSync - writesBeforeRunningSync} writes`);
+    }
+    if (userMessagesAfterRunningSync !== userMessagesBeforeRunningSync) {
+      throw new Error(`Expected running manual sync to reuse the active Codex reply, got user messages ${userMessagesBeforeRunningSync} -> ${userMessagesAfterRunningSync}`);
     }
 
     await page.evaluate(() => {

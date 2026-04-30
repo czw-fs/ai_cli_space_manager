@@ -33,6 +33,7 @@ import {
   mergeCodexTurnLiveText,
   terminalOutputHasCodexScopedTurnEndPrompt,
   terminalOutputHasCodexTurnEndPrompt,
+  terminalOutputToLatestCodexTurnLiveText,
   terminalOutputToCodexScopedLiveText,
   terminalOutputToCodexTurnLiveText,
 } from "./terminalMarkdown";
@@ -108,6 +109,32 @@ const isCanceledFileDialogError = (error: unknown) =>
   String(error).toLowerCase().includes("shellitem is nil");
 
 const wait = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+function normalizeCodexPromptForCompare(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[>›]\s*/, "").trim())
+    .join("")
+    .replace(/\s+/g, "");
+}
+
+function findLastCodexUserMessageIndex(messages: TerminalChatMessage[], prompt: string) {
+  const target = normalizeCodexPromptForCompare(prompt);
+  if (!target) {
+    return -1;
+  }
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const messageItem = messages[index];
+    if (
+      messageItem.kind === "codex" &&
+      messageItem.role === "user" &&
+      normalizeCodexPromptForCompare(messageItem.content) === target
+    ) {
+      return index;
+    }
+  }
+  return -1;
+}
 
 function App() {
   const [state, setState] = useState<AppState>(emptyState);
@@ -221,6 +248,83 @@ function App() {
     },
     [clearCodexFinalizeTimer],
   );
+
+  const syncCodexChatFromTerminalSnapshot = useCallback((sessionId: string) => {
+    const activeReplyId = activeCodexReplyIdBySession.current[sessionId];
+    const handle = terminalInstances.current[sessionId];
+    const screenText = handle ? readTerminalBufferText(handle) : "";
+    if (activeReplyId) {
+      syncCodexReplyFromSource(sessionId, screenText || terminalRawBySession.current[sessionId] || "", Boolean(screenText));
+      return;
+    }
+
+    const screenTurn = screenText ? terminalOutputToLatestCodexTurnLiveText(screenText) : { prompt: "", content: "" };
+    const rawTurn = !screenTurn.prompt || !screenTurn.content
+      ? terminalOutputToLatestCodexTurnLiveText(terminalRawBySession.current[sessionId] ?? "")
+      : { prompt: "", content: "" };
+    const turn = screenTurn.prompt && screenTurn.content ? screenTurn : rawTurn;
+    if (!turn.prompt || !turn.content) {
+      return;
+    }
+
+    const startedAt = Date.now();
+    setTerminalChatMessagesBySession((current) => {
+      const messages = current[sessionId] ?? [];
+      const existingUserIndex = findLastCodexUserMessageIndex(messages, turn.prompt);
+      if (existingUserIndex >= 0) {
+        const existingSystemIndex = messages.findIndex(
+          (messageItem, index) =>
+            index > existingUserIndex &&
+            messageItem.kind === "codex" &&
+            messageItem.role === "system",
+        );
+        if (existingSystemIndex >= 0) {
+          return {
+            ...current,
+            [sessionId]: messages.map((messageItem, index) =>
+              index === existingSystemIndex
+                ? {
+                    ...messageItem,
+                    content: turn.content,
+                    status: "completed",
+                    endedAt: startedAt,
+                  }
+                : messageItem,
+            ),
+          };
+        }
+      }
+
+      const turnId = makeId("codex-sync-turn");
+      const nextMessages = [...messages];
+      nextMessages.push({
+        id: makeId("chat-user"),
+        sessionId,
+        turnId,
+        role: "user",
+        kind: "codex",
+        content: turn.prompt,
+        status: "completed",
+        startedAt,
+        endedAt: startedAt,
+      });
+      nextMessages.push({
+        id: makeId("chat-system"),
+        sessionId,
+        turnId,
+        role: "system",
+        kind: "codex",
+        content: turn.content,
+        status: "completed",
+        startedAt,
+        endedAt: startedAt,
+      });
+      return {
+        ...current,
+        [sessionId]: nextMessages,
+      };
+    });
+  }, [syncCodexReplyFromSource]);
 
   useEffect(() => {
     api.getAppState().then(applyState).catch((error) => setMessage(String(error)));
@@ -916,6 +1020,7 @@ function App() {
               onPowerShellTurnStart={(sessionId, turn) => {
                 activePowerShellTurnBySession.current[sessionId] = turn;
               }}
+              onSyncCodexFromTerminal={syncCodexChatFromTerminalSnapshot}
             />
           )}
         </main>
@@ -1267,6 +1372,7 @@ function TerminalPanel({
   onCodexMessagesClear,
   onActiveChatTurnInterrupt,
   onPowerShellTurnStart,
+  onSyncCodexFromTerminal,
 }: {
   sessions: TerminalSession[];
   activeId: string;
@@ -1294,6 +1400,7 @@ function TerminalPanel({
   onCodexMessagesClear: (sessionId: string) => void;
   onActiveChatTurnInterrupt: (sessionId: string) => void;
   onPowerShellTurnStart: (sessionId: string, turn: ActivePowerShellTurn) => void;
+  onSyncCodexFromTerminal: (sessionId: string) => void;
 }) {
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const onInputErrorRef = useRef(onInputError);
@@ -1903,6 +2010,7 @@ function TerminalPanel({
           onSend={sendTerminalChatComposer}
           onInterrupt={interruptActiveChatTurn}
           onClearMessages={() => activeSession && onCodexMessagesClear(activeSession.id)}
+          onSyncFromTerminal={() => activeSession && onSyncCodexFromTerminal(activeSession.id)}
           onInputError={onInputError}
         />
       )}
@@ -1923,6 +2031,7 @@ function CodexPanel({
   onSend,
   onInterrupt,
   onClearMessages,
+  onSyncFromTerminal,
   onInputError,
 }: {
   activeSession: TerminalSession | undefined;
@@ -1936,6 +2045,7 @@ function CodexPanel({
   onSend: () => void;
   onInterrupt: () => void;
   onClearMessages: () => void;
+  onSyncFromTerminal: () => void;
   onInputError: (error: unknown) => void;
 }) {
   const messageListRef = useRef<HTMLDivElement | null>(null);
@@ -2077,7 +2187,10 @@ function CodexPanel({
           </button>
         </div>
         <div className="codex-chat-actions">
-          <button type="button" disabled={messages.length === 0} onClick={onClearMessages}>清空对话</button>
+          <div className="codex-chat-action-buttons">
+            <button type="button" disabled={messages.length === 0} onClick={onClearMessages}>清空对话</button>
+            <button type="button" disabled={mode !== "codex"} onClick={onSyncFromTerminal}>同步终端</button>
+          </div>
           <span>Enter 发送，Shift+Enter 换行</span>
         </div>
       </div>

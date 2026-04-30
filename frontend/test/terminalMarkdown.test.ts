@@ -1,9 +1,11 @@
 import {
   appendTerminalMarkdownOutput,
+  findLatestCodexPromptText,
   mergeCodexTurnLiveText,
   stripTerminalControlSequences,
   terminalOutputHasCodexInputPrompt,
   terminalOutputHasCodexTurnEndPrompt,
+  terminalOutputToLatestCodexTurnLiveText,
   terminalOutputToCodexLiveText,
   terminalOutputToCodexReplyText,
   terminalOutputToCodexTurnLiveText,
@@ -537,4 +539,51 @@ assertEqual(
   terminalOutputHasCodexInputPrompt("> Explain this codebase"),
   false,
   "does not treat echoed user input as an idle prompt",
+);
+
+const latestPromptScreen = [
+  "PS C:\\dev\\repo> codex",
+  "OpenAI Codex",
+  "",
+  "> 历史问题",
+  "",
+  "历史回答",
+  "",
+  "> https://github.com/carlini/printf-tac-toe",
+  "  帮我看看这个仓库是干什么的",
+  "",
+  "• 这是一个 IOCCC 井字棋作品。",
+  "",
+  "> Implement {feature}",
+  "gpt-5.5 xhigh · C:\\dev\\repo",
+].join("\n");
+
+assertEqual(
+  findLatestCodexPromptText(latestPromptScreen),
+  "https://github.com/carlini/printf-tac-toe\n帮我看看这个仓库是干什么的",
+  "manual sync finds the latest multiline Codex user prompt",
+);
+
+const latestTurn = terminalOutputToLatestCodexTurnLiveText(latestPromptScreen);
+assertEqual(
+  latestTurn.prompt,
+  "https://github.com/carlini/printf-tac-toe\n帮我看看这个仓库是干什么的",
+  "manual sync returns the extracted latest prompt",
+);
+assertEqual(
+  latestTurn.content,
+  "• 这是一个 IOCCC 井字棋作品。",
+  "manual sync maps the latest Codex answer from screen text",
+);
+
+assertEqual(
+  terminalOutputToLatestCodexTurnLiveText([
+    "PS C:\\dev\\repo> codex",
+    "OpenAI Codex",
+    "",
+    "> Implement {feature}",
+    "gpt-5.5 xhigh · C:\\dev\\repo",
+  ].join("\n")).content,
+  "",
+  "manual sync ignores idle placeholder prompts",
 );

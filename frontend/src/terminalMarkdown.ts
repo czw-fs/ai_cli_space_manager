@@ -70,6 +70,28 @@ export function terminalOutputToCodexTurnLiveText(value: string, activePrompt = 
   );
 }
 
+export function findLatestCodexPromptText(value: string) {
+  const lines = terminalOutputToScreenText(value).split("\n");
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const prompt = collectPromptTextFromLines(lines, index);
+    if (prompt) {
+      return prompt;
+    }
+  }
+  return "";
+}
+
+export function terminalOutputToLatestCodexTurnLiveText(value: string) {
+  const prompt = findLatestCodexPromptText(value);
+  if (!prompt) {
+    return { prompt: "", content: "" };
+  }
+  return {
+    prompt,
+    content: terminalOutputToCodexTurnLiveText(value, prompt),
+  };
+}
+
 export function terminalOutputToCodexScopedLiveText(value: string, activePrompt = "") {
   const promptLines = makePromptLineSet(activePrompt);
   const screenLines = terminalOutputToScreenText(value).split("\n");
@@ -523,6 +545,35 @@ function isCodexPostTurnInputPromptLine(
     return true;
   }
   return false;
+}
+
+function collectPromptTextFromLines(lines: string[], startIndex: number) {
+  const firstLine = lines[startIndex]?.trim() ?? "";
+  if (!/^[>›]\s*\S/.test(firstLine)) {
+    return "";
+  }
+  if (isCodexIdleInputPromptLine(firstLine) || isCodexPostTurnInputPromptLine(firstLine, new Set(), lines, startIndex)) {
+    return "";
+  }
+  if (isCodexSessionChromeLine(firstLine)) {
+    return "";
+  }
+  const promptLines = [firstLine.replace(/^[>›]\s*/, "").trim()];
+  const maxLines = Math.min(lines.length, startIndex + 8);
+  for (let index = startIndex + 1; index < maxLines; index += 1) {
+    const rawLine = lines[index].trim();
+    if (!rawLine) {
+      break;
+    }
+    if (/^[>›]\s*/.test(rawLine)) {
+      break;
+    }
+    if (isCodexSessionChromeLine(rawLine) || /^gpt-[\w.-]+(?:\s+\w+)?\s*·\s*[A-Za-z]:[\\/]/i.test(rawLine)) {
+      break;
+    }
+    promptLines.push(rawLine);
+  }
+  return promptLines.join("\n").trim();
 }
 
 function isCodexTurnChromeLine(line: string, activePromptLines: Set<string>, lines: string[], index: number) {

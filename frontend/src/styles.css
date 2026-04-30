@@ -1102,6 +1102,13 @@ body.resizing-sidebar * {
   font-size: 12px;
 }
 
+.codex-chat-action-buttons {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .codex-chat-actions button {
   height: 26px;
 }
