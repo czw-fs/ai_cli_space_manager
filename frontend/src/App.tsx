@@ -236,7 +236,7 @@ function App() {
       }
       const handle = terminalInstances.current[event.sessionId];
       if (handle) {
-        writeTerminalOutput(handle, event.data, () =>
+        writeTerminalOutputPinned(handle, event.data, Boolean(activeReplyId), () =>
           syncCodexReplyFromSource(event.sessionId, readTerminalBufferText(handle), true),
         );
       } else {
@@ -1139,6 +1139,15 @@ function writeTerminalOutput(handle: TerminalHandle, data: string, onFlushed?: (
   });
 }
 
+function writeTerminalOutputPinned(handle: TerminalHandle, data: string, pinToBottom: boolean, onFlushed?: () => void) {
+  handle.terminal.write(data, () => {
+    if (pinToBottom) {
+      handle.terminal.scrollToBottom();
+    }
+    onFlushed?.();
+  });
+}
+
 function readTerminalBufferText(handle: TerminalHandle) {
   const buffer = handle.terminal.buffer.active;
   const lines: string[] = [];
@@ -1300,7 +1309,9 @@ function TerminalPanel({
 
     const pending = pendingOutput.current[activeSession.id];
     if (pending) {
-      writeTerminalOutput(handle, pending, () => onCodexScreenSnapshot(activeSession.id, readTerminalBufferText(handle)));
+      writeTerminalOutputPinned(handle, pending, codexStreamingRef.current, () =>
+        onCodexScreenSnapshot(activeSession.id, readTerminalBufferText(handle)),
+      );
       delete pendingOutput.current[activeSession.id];
     }
 

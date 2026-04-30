@@ -210,6 +210,110 @@ async function sendCodexPromptWithEnter(page, prompt, expectedWriteCount) {
   );
 }
 
+const terminalStressStatuses = [
+  "Working (47s • esc to interrupt)",
+  "Working (48s • esc to interrupt)",
+  "Working  1m 08s • esc to interrupt)",
+  "Searching the web",
+  "Searched https://github.com/carlini/printf-tac-toe",
+  "Considering file output issues (1m 06s • esc to interrupt)",
+  "Waiting for tool result (2m 01s • esc to interrupt)",
+  "Reading README (12s • esc to interrupt)",
+  "Opening raw source (22s • esc to interrupt)",
+  "Checking printtt.c (35s • esc to interrupt)",
+  "Resolving repository metadata (45s • esc to interrupt)",
+  "Inspecting documentation pages        36",
+  "Comparing candidate files             4",
+  "Loading source tree                   102",
+  "Reading package metadata              7",
+  "Summarizing repository purpose        12",
+  "Following references                  23",
+  "Preparing final response              3",
+  "Using browser search (1m 12s • esc to interrupt)",
+  "Waiting for command output (4m 00s • esc to interrupt)",
+  "处理中 (1分 12秒 • esc to interrupt)",
+  "等待工具输出 (55秒 • esc to interrupt)",
+  "Reviewing terminal snapshot (1h 02m • esc to interrupt)",
+  "Loading cached result (750ms • esc to interrupt)",
+  "Running tool...",
+  "Reading output...",
+  "Writing answer...",
+  "Gathering context...",
+  "Checking files...",
+  "Analyzing result...",
+  "Testing hypothesis...",
+  "Thinking…",
+  "Searching...",
+  "Working...",
+  "Opening README...",
+  "Scanning files...",
+  "Checking examples...",
+  "Reviewing source...",
+  "Following link...",
+  "Waiting network...",
+  "Parsing output...",
+  "整理最终回答 (58s • esc to interrupt)",
+  "等待网络请求返回 (2m 05s • esc to interrupt)",
+  "正在分析仓库结构 (18s • esc to interrupt)",
+  "读取 README (9s • esc to interrupt)",
+  "检查 IOCCC 信息 (33s • esc to interrupt)",
+  "确认 printf 技巧 (49s • esc to interrupt)",
+  "准备中文概括 (1m 10s • esc to interrupt)",
+  "合并搜索结果 (1m 20s • esc to interrupt)",
+  "最终检查回答 (1m 30s • esc to interrupt)",
+];
+
+function terminalStressFrame(index) {
+  const status = terminalStressStatuses[index - 1];
+  return `\x1b[2J\x1b[H${[
+    "› https://github.com/carlini/printf-tac-toe",
+    "  帮我看看这个仓库是干什么的",
+    "",
+    `• ${status}`,
+    "",
+    "> Use /skills to list available skills",
+    "",
+    "gpt-5.5 xhigh · C:\\dev\\myproject\\ai_cli_space_manager",
+    "",
+    `terminal-stress-frame-${String(index).padStart(2, "0")}`,
+  ].join("\r\n")}`;
+}
+
+async function visibleTerminalText(page) {
+  return page.locator(".terminal-host .xterm").evaluate((element) =>
+    [...element.querySelectorAll(".xterm-rows > div")]
+      .map((row) => row.textContent ?? "")
+      .join("\n"),
+  );
+}
+
+async function waitForVisibleTerminalMarker(page, marker) {
+  await page.waitForFunction((expected) => {
+    const terminal = document.querySelector(".terminal-host .xterm");
+    const rows = terminal ? [...terminal.querySelectorAll(".xterm-rows > div")] : [];
+    return rows.some((row) => row.textContent?.includes(expected));
+  }, marker, { timeout: 5000 });
+}
+
+async function assertTerminalPinnedToLatestFrame(page, index) {
+  const marker = `terminal-stress-frame-${String(index).padStart(2, "0")}`;
+  await waitForVisibleTerminalMarker(page, marker);
+  const text = await visibleTerminalText(page);
+  if (!text.includes(marker)) {
+    throw new Error(`Expected visible terminal to contain latest marker ${marker}, got: ${text}`);
+  }
+  if (index > 1) {
+    const previous = `terminal-stress-frame-${String(index - 1).padStart(2, "0")}`;
+    if (text.includes(previous)) {
+      throw new Error(`Expected visible terminal to leave previous frame ${previous} out of view, got: ${text}`);
+    }
+  }
+  const promptCount = (text.match(/Use \/skills to list available skills/g) ?? []).length;
+  if (promptCount > 1) {
+    throw new Error(`Expected one visible Codex prompt after pinned redraw, got ${promptCount}: ${text}`);
+  }
+}
+
 async function run() {
   const server = await startStaticServer();
   let browser;
@@ -417,6 +521,23 @@ async function run() {
       const outputs = [...document.querySelectorAll(".codex-message.assistant .codex-live-output")];
       return outputs.some((element) => element.textContent?.includes("Working"));
     }, undefined, { timeout: 5000 });
+
+    await page.getByLabel("终端视图切换").getByRole("button", { name: "终端" }).click();
+    await page.locator(".terminal-host .xterm").click({ position: { x: 30, y: 30 } });
+    await page.mouse.wheel(0, -1800);
+    for (let index = 1; index <= terminalStressStatuses.length; index += 1) {
+      if (index % 5 === 0) {
+        await page.mouse.wheel(0, -900);
+      }
+      await page.evaluate((frame) => window.__codexE2E.emitTerminal(frame), terminalStressFrame(index));
+      await assertTerminalPinnedToLatestFrame(page, index);
+    }
+    const terminalAfterStress = await visibleTerminalText(page);
+    if (!terminalAfterStress.includes("terminal-stress-frame-50")) {
+      throw new Error(`Expected terminal stress test to end on frame 50, got: ${terminalAfterStress}`);
+    }
+    await page.getByRole("button", { name: "Codex" }).click();
+
     await page.keyboard.press("Control+C");
     await page.waitForFunction(() => window.__codexE2E?.writes?.includes("\u0003"));
 
